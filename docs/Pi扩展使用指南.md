@@ -27,6 +27,14 @@
 
 全局资源配置使用 Pi settings.json 的 `packages` 和 `skills`，不写入项目配置。本地引用请保留源目录；npm/Git 依赖系统相应命令与网络，缺失时明确报错。当前菜单不提供卸载、升级或 MCP 管理。
 
+## 输入框 `/` 候选
+
+输入 `/` 可查看当前会话的 Skill、扩展命令、MCP 命令与提示模板；继续输入按名称或描述筛选。同名项遵循实际执行顺序，扩展命令优先。`enableSkillCommands=false` 时不列出 Skill 命令，未加载或已在新会话禁用的资源不会出现在候选中。
+
+↑↓ 选择，Tab 或 Enter 补全，点击候选也可填入；Esc 关闭，焦点始终保留在输入框。补全不发起模型请求，不自动执行；完整命令按 Enter 仍可直接发送。选中后继续输入任务或参数，随后发送。普通文本、光标前不是 `/` 开头、输入法组词及运行期间不弹出菜单。
+
+参数候选调用扩展原生 `getArgumentCompletions(prefix)`，兼容异步返回；例如 `/mcp ` 提示子命令，`/mcp reconnect ` 提示实际服务。扩展没有提供参数补全时正常输入，不列出虚构选项。异步结果在输入、光标或会话改变后失效，扩展返回内容按文本转义展示。服务出现在候选中不代表已连接或授权。
+
 ## MCP 与 Postman
 
 客户端显式加载 Pi 原生 MCP、codemode、tool-search 扩展，接手 `registerMcpServer()` 注册的服务，支持 HTTP/stdio、工具发现、动态注册与原生 exposure 规则。无需再安装另一个 MCP 桥接插件。全局配置为 `<agentDir>/mcp.json`；项目信任后才加载 `<项目>/.pi/mcp.json`。

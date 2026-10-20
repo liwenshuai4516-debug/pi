@@ -13,7 +13,7 @@ export function bindComposerKeyboard(
   });
   input.addEventListener('keydown', (event) => {
     // Safari 等环境可能先触发 compositionend，再派发 keyCode 229 的确认键。
-    if (composing || event.isComposing || event.keyCode === 229) return;
+    if (event.defaultPrevented || composing || event.isComposing || event.keyCode === 229) return;
     if (event.key !== 'Enter' || event.shiftKey) return;
     event.preventDefault();
     if (!event.repeat && canSend()) submit();

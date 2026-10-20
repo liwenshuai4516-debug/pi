@@ -6,6 +6,7 @@ import {
 import { renderThinking } from './features/models/thinking.js';
 import { bindComposerKeyboard } from './features/composer/keyboard.js';
 import { bindExtensionShortcuts } from './features/composer/extension-shortcuts.js';
+import { bindSlashMenu } from './features/composer/slash-menu.js';
 import { bindModelSettings } from './features/models/settings.js';
 import { renderModelChoices } from './features/models/choices.js';
 import { bindSessionManagement } from './features/sessions/management.js';
@@ -125,6 +126,7 @@ function updateControls(): void {
     : active && !active.model
       ? '请先在模型配置中连接模型'
       : 'Enter 发送 · Shift + Enter 换行';
+  slashMenu.refresh();
 }
 function renderView(): void {
   el('chat-title').textContent = active?.name ?? '新会话';
@@ -252,6 +254,11 @@ function applySessionView(view: SessionView): void {
     renderView();
   }
 }
+const slashMenu = bindSlashMenu(
+  prompt,
+  () => navigating || configuring || (active && sendingIds.has(active.id)) ? null : active,
+  (id, prefix) => api.complete(id, prefix),
+);
 const setConfiguring = (pending: boolean): void => {
   configuring = pending;
   updateControls();

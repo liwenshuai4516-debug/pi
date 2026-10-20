@@ -71,6 +71,12 @@ export interface FileAttachment {
   name: string;
   path: string;
 }
+export interface SlashCompletion {
+  value: string;
+  label: string;
+  description: string;
+  kind: 'command' | 'skill' | 'template' | 'service';
+}
 export interface ModelConfigInput {
   provider: string;
   modelId: string;
@@ -100,6 +106,7 @@ export interface AgentClientApi {
   send(id: string, text: string, images: ImageAttachment[], files: FileAttachment[]): Promise<void>;
   stop(id: string): Promise<void>;
   shortcut(id: string, key: string): Promise<void>;
+  complete(id: string, prefix: string): Promise<SlashCompletion[]>;
   setModel(id: string, provider: string, modelId: string): Promise<SessionView>;
   setPermission(id: string, permission: WorkspacePermission): Promise<SessionView>;
   setThinking(id: string, thinking: ThinkingLevel): Promise<SessionView>;

@@ -25,6 +25,7 @@ const api: AgentClientApi = {
   send: (id, text, images, files) => invoke('agent:send', id, text, images, files),
   stop: (id) => invoke('agent:stop', id),
   shortcut: (id, key) => invoke('agent:shortcut', id, key),
+  complete: (id, prefix) => invoke('agent:complete', id, prefix),
   setModel: (id, provider, modelId) => invoke('agent:model', id, provider, modelId),
   setPermission: (id, permission) => invoke('agent:permission', id, permission),
   setThinking: (id, thinking) => invoke('agent:thinking', id, thinking),

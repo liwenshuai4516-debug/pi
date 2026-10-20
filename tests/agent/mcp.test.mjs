@@ -42,6 +42,8 @@ for (const exposure of ['direct', 'codemode', 'mixed']) {
     await host.send(view.id, '/mcp', [], []);
     await until(() => host.view(view.id).warning?.includes('postman: connected'));
     assert.match(host.view(view.id).warning, /1 tools/);
+    const completions = await host.complete(view.id, '/mcp reconnect post');
+    assert.deepEqual(completions.map(item => item.value), ['/mcp reconnect postman']);
     assert.doesNotMatch(host.view(view.id).warning, /no loaded extension connects MCP|扩展加载失败/);
   });
 }

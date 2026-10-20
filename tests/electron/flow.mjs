@@ -15,6 +15,14 @@ export default (pi) => {
   });
   pi.registerShortcut('ctrl+shift+s', { handler: ctx => appendFileSync(ctx.cwd + '/desktop-shortcut.txt', 'KEY_EXECUTED') });
   pi.registerShortcut('ctrl+k', { handler: ctx => writeFileSync(ctx.cwd + '/reserved-key.txt', 'SHOULD_NOT_RUN') });
+  pi.registerCommand('desktop-options', {
+    description: '参数补全验证',
+    getArgumentCompletions: async prefix => {
+      if (prefix === 'slow') await new Promise(resolve => setTimeout(resolve, 150));
+      return [{value: prefix + '-option', label: '<' + prefix + '>', description: '<img src=x onerror=alert(1)>'}];
+    },
+    handler: () => {},
+  });
 };
 `);
 const evidence = resolve(
@@ -87,6 +95,15 @@ try {
   assert.equal(await page.locator('.chat-panel').evaluate((node) => node.classList.contains('empty-chat')), true);
   await page.screenshot({ path: join(evidence, 'startup-chat.png') });
   const listSessionId = await page.locator('[data-session].active').getAttribute('data-session');
+  const invalidCompletions = await page.evaluate(async id => {
+    const errors = [];
+    for (const prefix of [null, '', 'not-a-command', '/mcp\nlogin', '/' + 'x'.repeat(2000)]) {
+      try { await window.agentClient.complete(id, prefix); }
+      catch (error) { errors.push(error.message); }
+    }
+    return errors;
+  }, listSessionId);
+  assert.equal(invalidCompletions.length, 5);
   await page.locator('#toggle-session-list').click();
   assert.equal(await page.locator('#sessions').isVisible(), false);
   assert.equal(await page.locator('#toggle-session-list').getAttribute('aria-expanded'), 'false');
@@ -209,7 +226,64 @@ try {
   await page.locator('[data-session].active').waitFor();
   pass('sidebar collapse frees chat space, preserves draft/selection; keyboard toggle and search reopen work');
   const beforeExtension = fixture.state.requests;
-  await page.locator('#prompt').fill('/desktop-extension');
+  await page.locator('#prompt').fill('/');
+  await page.locator('#slash-list [role=option]').first().waitFor();
+  assert.ok(await page.locator('#slash-list').getByText('/mcp', {exact: true}).count());
+  assert.ok(await page.locator('#slash-list').getByText('/desktop-extension', {exact: true}).count());
+  await page.screenshot({ path: join(evidence, 'slash-commands.png') });
+  await page.locator('#prompt').press('Meta+a');
+  assert.equal(await page.locator('#slash-menu').isVisible(), false);
+  await page.locator('#prompt').press('End');
+  await page.locator('#slash-list [role=option]').first().waitFor();
+  const initialOption = await page.locator('#prompt').getAttribute('aria-activedescendant');
+  await page.locator('#prompt').press('ArrowDown');
+  assert.notEqual(await page.locator('#prompt').getAttribute('aria-activedescendant'), initialOption);
+  const selectedCommand = await page.locator('#slash-list [aria-selected=true] .slash-option-name').textContent();
+  await page.locator('#prompt').press('Tab');
+  assert.equal(await page.locator('#prompt').inputValue(), selectedCommand + ' ');
+  assert.equal(await page.locator('#slash-menu').isVisible(), false);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'prompt');
+  await page.locator('#prompt').fill('/desktop-ext');
+  await page.locator('#slash-list').getByText('/desktop-extension', {exact: true}).waitFor();
+  await page.locator('#prompt').evaluate(node => {
+    node.dispatchEvent(new CompositionEvent('compositionstart', {bubbles: true}));
+    node.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', isComposing: true, bubbles: true}));
+    node.dispatchEvent(new CompositionEvent('compositionend', {bubbles: true}));
+    node.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 229, bubbles: true}));
+    node.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', repeat: true, bubbles: true}));
+  });
+  assert.equal(await page.locator('#prompt').inputValue(), '/desktop-ext');
+  assert.equal(fixture.state.requests, beforeExtension);
+  await page.locator('#slash-list').getByText('/desktop-extension', {exact: true}).waitFor();
+  await page.locator('#prompt').press('Escape');
+  assert.equal(await page.locator('#slash-menu').isVisible(), false);
+  await page.locator('#prompt').fill('/desktop-ext 保留任务后缀');
+  await page.locator('#prompt').evaluate(node => { node.setSelectionRange(12, 12); node.dispatchEvent(new Event('click')); });
+  await page.locator('#slash-list').getByText('/desktop-extension', {exact: true}).waitFor();
+  await page.locator('#prompt').press('Tab');
+  assert.equal(await page.locator('#prompt').inputValue(), '/desktop-extension 保留任务后缀');
+  await page.locator('#prompt').fill('/desktop-options slow');
+  await page.locator('#slash-menu').waitFor({state: 'hidden'});
+  await page.locator('#prompt').fill('/desktop-options fast');
+  await page.locator('#slash-list').getByText('<fast>', {exact: true}).waitFor();
+  await page.waitForTimeout(200); // 等待刻意延迟的旧补全，确认它不会覆盖新结果。
+  assert.equal(await page.locator('#slash-list').getByText('<slow>', {exact: true}).count(), 0);
+  assert.equal(await page.locator('#slash-list').getByText('<fast>', {exact: true}).count(), 1);
+  assert.equal(await page.locator('#slash-list img').count(), 0);
+  await page.locator('#prompt').fill('/mcp ');
+  await page.locator('#slash-list').getByText('login', {exact: true}).waitFor();
+  await page.locator('#slash-list').getByText('login', {exact: true}).click();
+  assert.equal(await page.locator('#prompt').inputValue(), '/mcp login ');
+  assert.equal(fixture.state.requests, beforeExtension);
+  await page.locator('#prompt').fill('/不存在的命令');
+  await page.locator('#slash-status').filter({hasText: '没有匹配'}).waitFor();
+  await page.locator('#prompt').press('Escape');
+  pass('slash picker supports real commands/MCP actions, keyboard/mouse completion, IME protection, suffix preservation and escaped async results');
+  await page.locator('#prompt').fill('/desktop-ext');
+  await page.locator('#slash-list').getByText('/desktop-extension', {exact: true}).waitFor();
+  await page.locator('#prompt').press('Enter');
+  assert.equal(await page.locator('#prompt').inputValue(), '/desktop-extension ');
+  assert.equal(fixture.state.requests, beforeExtension);
   await page.locator('#prompt').press('Enter');
   await until(async () => {
     try { return (await readFile(join(fixture.project, 'desktop-extension.txt'), 'utf8')) === 'EXTENSION_EXECUTED'; }
@@ -219,6 +293,7 @@ try {
   assert.equal(fixture.state.requests, beforeExtension);
   pass('Pi extension loads in Electron main and composer slash command executes without a model request');
   await page.locator('#prompt').fill('/mcp');
+  await page.locator('#slash-list').getByText('/mcp', {exact: true}).waitFor();
   await page.locator('#prompt').press('Enter');
   await until(async () => (await page.locator('#send').getAttribute('aria-label')) === '发送任务');
   await until(async () => (await page.locator('body').innerText()).includes('No MCP servers configured'));
@@ -278,6 +353,8 @@ try {
   assert.equal(await page.locator('#thinking').isDisabled(), true);
   assert.equal(await page.locator('#workspace-permission').isDisabled(), true);
   const runningRequests = fixture.state.requests;
+  await page.locator('#prompt').fill('/');
+  assert.equal(await page.locator('#slash-menu').isVisible(), false);
   await page.locator('#prompt').fill('运行中草稿');
   await page.locator('#prompt').press('Enter');
   assert.equal(fixture.state.requests, runningRequests);
@@ -392,6 +469,16 @@ try {
   await page.screenshot({ path: join(evidence, 'narrow-collapsed.png') });
   await page.locator('#toggle-sidebar').click();
   pass('900px desktop layout has no horizontal page overflow with sidebar expanded or collapsed');
+  const narrowDraft = await page.locator('#prompt').inputValue();
+  await page.locator('#prompt').fill('/');
+  await page.locator('#slash-list [role=option]').first().waitFor();
+  assert.equal(await page.locator('#slash-menu').evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    return rect.top >= 0 && rect.left >= 0 && rect.right <= window.innerWidth && rect.bottom <= window.innerHeight;
+  }), true);
+  await page.screenshot({ path: join(evidence, 'slash-narrow.png') });
+  await page.locator('#prompt').press('Escape');
+  await page.locator('#prompt').fill(narrowDraft);
   await page.locator('#search-sessions').click();
   assert.equal(await page.locator('#session-search-box').isVisible(), false);
   await page.locator('#search-sessions').click();
@@ -547,7 +634,13 @@ try {
   await trace.getByText('INSTALLED_PLUGIN_EXECUTED', { exact: true }).waitFor();
   await finalPage.screenshot({ path: join(evidence, 'trace-chinese.png') });
   pass('UI-installed Pi plugin loads in new conversation and real model tool call writes proof; trace uses Chinese labels');
-  await finalPage.locator('#prompt').fill('/skill:installed-skill 检查安装是否生效');
+  await finalPage.locator('#prompt').fill('/skill:installed');
+  await finalPage.locator('#slash-list').getByText('/skill:installed-skill', {exact: true}).waitFor();
+  await finalPage.screenshot({ path: join(evidence, 'slash-skills.png') });
+  await finalPage.locator('#slash-list').getByText('/skill:installed-skill', {exact: true}).click();
+  assert.equal(await finalPage.locator('#prompt').inputValue(), '/skill:installed-skill ');
+  await finalPage.locator('#prompt').press('End');
+  await finalPage.locator('#prompt').pressSequentially('检查安装是否生效');
   await finalPage.locator('#prompt').press('Enter');
   await until(async () => (await finalPage.locator('#send').getAttribute('aria-label')) === '发送任务');
   assert.match(fixture.state.instructions.at(-1), /SKILL_INSTALL_PROOF/);

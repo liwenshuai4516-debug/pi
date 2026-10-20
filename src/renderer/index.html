@@ -113,11 +113,21 @@
               </button>
             </div>
             <div class="composer">
+              <div id="slash-menu" class="slash-menu" hidden>
+                <div class="slash-menu-heading"><span>技能与命令</span><span id="slash-count" role="status"></span></div>
+                <div id="slash-list" class="slash-list" role="listbox" aria-label="技能与命令候选"></div>
+                <div id="slash-status" class="slash-status" role="status" hidden></div>
+                <div class="slash-menu-footer"><span>↑↓ 选择 · Tab 补全 · Enter 确认</span><span>Esc 收起</span></div>
+              </div>
               <textarea
                 id="prompt"
                 rows="3"
-                placeholder="描述你的任务，或输入 / 使用提示模板…"
+                placeholder="描述你的任务，或输入 / 选择技能、服务与命令…"
                 aria-label="任务输入"
+                aria-autocomplete="list"
+                aria-controls="slash-list"
+                aria-haspopup="listbox"
+                aria-expanded="false"
                 disabled
               ></textarea>
               <div class="composer-bottom">

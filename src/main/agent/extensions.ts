@@ -25,6 +25,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { readFile } from 'node:fs/promises';
 import { expandTemplate } from './prompt-templates.js';
+import type { SlashCompletion } from '../../shared/types.js';
 
 function unsupported(): never {
   throw new Error('当前桌面扩展运行器尚不支持此操作');
@@ -278,6 +279,35 @@ export class ClientExtensions {
 
   get shortcuts(): { key: string; description: string }[] {
     return [...this.shortcutHandlers].map(([key, shortcut]) => ({ key, description: shortcut.description ?? key }));
+  }
+
+  async complete(prefix: string): Promise<SlashCompletion[]> {
+    const match = /^\/(\S+)[ \t]+([^\r\n]*)$/.exec(prefix);
+    if (match) {
+      const command = this.runner.getCommand(match[1]);
+      const items = await command?.getArgumentCompletions?.(match[2]);
+      return (items ?? []).map((item) => ({
+        value: `/${match[1]} ${item.value}`, label: item.label,
+        description: item.description ?? '', kind: match[1] === 'mcp' ? 'service' : 'command',
+      }));
+    }
+    if (!/^\/[^\s]*$/.test(prefix)) return [];
+    // 与发送时相同：扩展命令优先于 Skill 和提示模板，同名项只展示实际执行者。
+    const items = new Map<string, SlashCompletion>();
+    const add = (name: string, description: string, kind: SlashCompletion['kind']) => {
+      const value = `/${name}`;
+      if (!items.has(value)) items.set(value, { value: `${value} `, label: value, description, kind });
+    };
+    for (const command of this.runner.getRegisteredCommands()) {
+      add(command.invocationName, command.description ?? '', command.invocationName === 'mcp' ? 'service' : 'command');
+    }
+    if (this.settings.getEnableSkillCommands()) {
+      for (const skill of this.resources.getSkills().skills) add(`skill:${skill.name}`, skill.description, 'skill');
+    }
+    for (const template of this.resources.getPrompts().prompts) add(template.name, template.description, 'template');
+    const query = prefix.slice(1).toLocaleLowerCase();
+    return [...items.values()].filter((item) => `${item.label} ${item.description}`.toLocaleLowerCase().includes(query))
+      .sort((a, b) => Number(!a.label.slice(1).toLocaleLowerCase().startsWith(query)) - Number(!b.label.slice(1).toLocaleLowerCase().startsWith(query)) || a.label.localeCompare(b.label));
   }
 
   async shortcut(key: string): Promise<void> {

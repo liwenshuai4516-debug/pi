@@ -154,6 +154,12 @@ export function registerAgentIpc(
     string(id, '会话 ID', 256);
     return host.fork(id);
   });
+  handle('agent:complete', async (id: unknown, prefix: unknown) => {
+    string(id, '会话 ID', 256);
+    string(prefix, '命令前缀', 2000);
+    if (!/^\/[^\r\n]*$/.test(prefix)) throw new Error('命令前缀无效');
+    return host.complete(id, prefix);
+  });
   handle('agent:send', async (id: unknown, text: unknown, images: unknown, files: unknown) => {
     string(id, '会话 ID', 256);
     if (

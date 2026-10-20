@@ -421,6 +421,12 @@ export class AgentHost {
         .prompts.map(({ name, description }) => ({ name, description })),
     };
   }
+  async complete(id: string, prefix: string) {
+    this.assertAvailable(id);
+    const entry = this.get(id);
+    if (entry.busy || entry.agent.state.isStreaming) return [];
+    return entry.extensions?.complete(prefix) ?? [];
+  }
   private handleEvent(id: string, event: AgentEvent): void {
     const entry = this.get(id);
     if (event.type === 'message_start' || event.type === 'message_update')
