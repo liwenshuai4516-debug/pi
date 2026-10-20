@@ -38,7 +38,15 @@ export interface ToolProgress {
   output: string;
   status: 'running' | 'done' | 'error';
 }
+export interface PluginInventory {
+  packages: { source: string; installed: boolean }[];
+  extensions: { name: string; path: string }[];
+  skills: { name: string; description: string; path: string }[];
+  diagnostics: string[];
+}
 export interface SessionView {
+  skills: { name: string; description: string; path: string }[];
+  extensions: string[];
   id: string;
   cwd: string;
   name: string;
@@ -79,6 +87,9 @@ export interface InitialState {
 }
 export interface AgentClientApi {
   initialize(): Promise<InitialState>;
+  listPlugins(): Promise<PluginInventory>;
+  installPlugin(source: string, kind: 'package' | 'skill'): Promise<PluginInventory>;
+  choosePluginSource(kind: 'package' | 'skill'): Promise<string | null>;
   selectProject(): Promise<string | null>;
   createSession(cwd: string): Promise<SessionView>;
   openSession(id: string): Promise<SessionView>;

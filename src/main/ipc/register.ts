@@ -5,6 +5,7 @@ import {
   ProjectTrustStore,
   hasTrustRequiringProjectResources,
 } from '@earendil-works/pi-coding-agent';
+import { PluginManager } from '../plugins/manager.js';
 import { AgentHost } from '../agent/agent-host.js';
 import { saveModelConfig } from '../models/model-config.js';
 import { isWorkspacePermission } from '../workspace/permissions.js';
@@ -88,6 +89,25 @@ export function registerAgentIpc(
       };
     }
   });
+  const plugins = () => new PluginManager(host.agentDir, join(app.getPath('userData'), 'workspace'));
+  let installingPlugin = false;
+  handle('agent:plugins', () => plugins().list());
+  handle('agent:install-plugin', async (source: unknown, kind: unknown) => {
+    string(source, '安装来源', 2000);
+    if (kind !== 'package' && kind !== 'skill') throw new Error('安装类型无效');
+    if (host.active || installingPlugin) throw new Error('请等待当前任务或安装结束');
+    installingPlugin = true;
+    try { return await plugins().install(source, kind); }
+    finally { installingPlugin = false; }
+  });
+  handle('agent:plugin-source', async (kind: unknown) => {
+    if (kind !== 'package' && kind !== 'skill') throw new Error('安装类型无效');
+    const result = await dialog.showOpenDialog(getWindow()!, {
+      title: kind === 'skill' ? '选择包含 SKILL.md 的目录' : '选择 Pi 插件或资源包目录',
+      properties: ['openDirectory'],
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
   handle('agent:select-project', async () => {
     const result = await dialog.showOpenDialog(getWindow()!, {
       title: '选择 Agent 的工作目录',
@@ -99,12 +119,14 @@ export function registerAgentIpc(
     return cwd;
   });
   handle('agent:create', async (cwd: unknown) => {
+    if (installingPlugin) throw new Error('请等待插件安装结束');
     string(cwd, '项目目录');
     if (!allowedProjects.has(cwd)) throw new Error('请通过目录选择器选择项目');
     return host.create(cwd, await trust(cwd));
   });
   handle('agent:open', async (id: unknown) => {
     string(id, '会话 ID', 256);
+    if (installingPlugin) throw new Error('请等待插件安装结束');
     const view = await host.open(id, trust);
     // 历史目录已由主进程解析并完成信任检查；重启续接后也应允许在同一项目新建会话。
     allowedProjects.add(view.cwd);
@@ -145,6 +167,7 @@ export function registerAgentIpc(
         throw new Error('图片格式或大小无效');
     for (const file of files as FileAttachment[])
       if (!file || !selectedFiles.has(file.path)) throw new Error('附件必须通过文件选择器添加');
+    if (installingPlugin) throw new Error('请等待插件安装结束');
     await host.send(id, text, images as ImageAttachment[], files as FileAttachment[]);
   });
   handle('agent:stop', async (id: unknown) => {

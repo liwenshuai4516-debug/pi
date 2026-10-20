@@ -93,3 +93,18 @@
   font-size: 12px;
   z-index: 10;
 }
+
+#toggle-session-list {
+  width: 100%;
+  text-align: left;
+}
+.session-chevron {
+  display: inline-block;
+  margin-left: 5px;
+}
+#toggle-session-list[aria-expanded="false"] .session-chevron {
+  transform: rotate(-90deg);
+}
+.sidebar-bottom {
+  margin-top: auto;
+}

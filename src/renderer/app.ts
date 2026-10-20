@@ -9,6 +9,7 @@ import { bindExtensionShortcuts } from './features/composer/extension-shortcuts.
 import { bindModelSettings } from './features/models/settings.js';
 import { renderModelChoices } from './features/models/choices.js';
 import { bindSessionManagement } from './features/sessions/management.js';
+import { bindPlugins } from './features/plugins/panel.js';
 import { bindSessionSidebar } from './features/sessions/sidebar.js';
 import { renderSessionList } from './features/sessions/list.js';
 import { renderMessages } from './features/chat/messages.js';
@@ -271,6 +272,7 @@ const openSettings = bindModelSettings(
     }
   },
 );
+bindPlugins(() => active, newSession);
 const manageSession = bindSessionManagement({
   getSessions: () => sessions,
   isNavigating: () => navigating,

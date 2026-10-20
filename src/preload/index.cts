@@ -12,6 +12,9 @@ function subscribe<T>(channel: string, callback: (value: T) => void): () => void
 }
 const api: AgentClientApi = {
   initialize: () => invoke('agent:initialize'),
+  listPlugins: () => invoke('agent:plugins'),
+  installPlugin: (source, kind) => invoke('agent:install-plugin', source, kind),
+  choosePluginSource: (kind) => invoke('agent:plugin-source', kind),
   selectProject: () => invoke('agent:select-project'),
   createSession: (cwd) => invoke('agent:create', cwd),
   openSession: (id) => invoke('agent:open', id),

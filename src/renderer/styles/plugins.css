@@ -1,0 +1,99 @@
+.sidebar-menu {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 11px 10px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 12px;
+}
+#plugins-dialog {
+  width: min(740px, calc(100vw - 40px));
+}
+#plugin-form {
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 10px;
+}
+#plugin-form label {
+  margin: 0 0 8px;
+}
+.plugin-source-row {
+  display: flex;
+  gap: 8px;
+}
+.plugin-source-row input {
+  flex: 1;
+  min-width: 0;
+}
+.plugin-source-row button {
+  flex-shrink: 0;
+}
+.plugin-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#plugin-status {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.resource-section h3 {
+  margin: 24px 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.resource-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.resource-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.resource-list li > div {
+  min-width: 0;
+}
+.resource-list small,
+.resource-list p {
+  display: block;
+  margin: 6px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.resource-state {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--selected);
+}
+.resource-empty {
+  color: var(--muted);
+}
+
+#plugin-kind,
+#plugin-source {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+#plugin-kind {
+  margin-bottom: 16px;
+}

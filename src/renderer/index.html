@@ -44,7 +44,15 @@
             <input id="session-search" placeholder="搜索会话…" aria-label="搜索会话" />
             <kbd>⌘ K</kbd>
           </div>
-          <div class="side-heading"><span>最近会话</span><span id="session-count">0</span></div>
+          <button id="plugins-button" class="sidebar-menu">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+              <path d="M8 3v5H3v8h5v5h8v-5h5V8h-5V3Z" />
+            </svg>
+            插件与 Skill
+          </button>
+          <button id="toggle-session-list" class="side-heading" aria-expanded="true" aria-controls="sessions">
+            <span>最近会话 <span class="session-chevron" aria-hidden="true">⌄</span></span><span id="session-count">0</span>
+          </button>
           <nav id="sessions" aria-label="历史会话"><p class="side-empty">正在读取会话…</p></nav>
           <div class="sidebar-bottom">
             <button id="settings-button">
@@ -315,6 +323,37 @@
         </div>
         <p id="session-action-progress" class="path-note" role="status" hidden></p>
         <p id="session-action-error" class="form-error" role="alert" hidden></p>
+      </div>
+    </dialog>
+    <dialog id="plugins-dialog" aria-labelledby="plugins-title">
+      <div class="dialog-head">
+        <div><span class="eyebrow">扩展能力</span><h2 id="plugins-title">插件与 Skill</h2></div>
+        <button id="close-plugins" class="icon-button" aria-label="关闭插件管理">×</button>
+      </div>
+      <div class="dialog-body">
+        <form id="plugin-form">
+          <label for="plugin-kind">安装类型</label>
+          <select id="plugin-kind">
+            <option value="package">Pi 资源包（插件 / Skill）</option>
+            <option value="skill">本地 Skill</option>
+          </select>
+          <label for="plugin-source">安装来源</label>
+          <div class="plugin-source-row">
+            <input id="plugin-source" required autocomplete="off" placeholder="npm:包名、Git 地址或本地资源包路径" />
+            <button id="choose-plugin-source" class="secondary-button" type="button">选择目录</button>
+          </div>
+          <p class="path-note">Pi 资源包支持 npm、Git 和本地目录。本地 Skill 引用原目录，请保留其文件。仅安装你信任的插件。</p>
+          <div class="plugin-actions">
+            <button id="install-plugin" class="primary-button" type="submit">安装</button>
+            <button id="activate-plugins" class="secondary-button" type="button">新建对话并加载</button>
+          </div>
+        </form>
+        <p id="plugin-status" role="status"></p>
+        <p id="plugin-error" class="form-error" role="alert" hidden></p>
+        <section class="resource-section"><h3>已配置资源包</h3><ul id="plugin-packages" class="resource-list"></ul></section>
+        <section class="resource-section"><h3>插件</h3><ul id="plugin-extensions" class="resource-list"></ul></section>
+        <section class="resource-section"><h3>Skill</h3><ul id="plugin-skills" class="resource-list"></ul></section>
+        <p id="plugin-diagnostics" class="form-error" hidden></p>
       </div>
     </dialog>
     <div id="session-notice" class="session-notice" role="status" hidden></div>

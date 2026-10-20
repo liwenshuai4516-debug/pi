@@ -4,9 +4,10 @@ import type { WorkspacePermission } from '../../shared/types.js';
 export const shellQuote = (value: string): string => "'" + value.replaceAll("'", "'\\''") + "'";
 
 /** macOS 文件沙箱：工作区外只开放系统运行文件，命令及其子进程继承限制。 */
-export function sandboxProfile(root: string, permission: WorkspacePermission): string {
+export function sandboxProfile(root: string, permission: WorkspacePermission, resourceRoots: string[] = []): string {
   const readRoots = [
     root,
+    ...resourceRoots,
     '/System',
     '/usr',
     '/bin',

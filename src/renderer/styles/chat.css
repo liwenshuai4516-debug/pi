@@ -1,152 +1,71 @@
-.messages {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 26px max(28px, calc((100% - 1080px) / 2)) 20px;
-  scrollbar-width: thin;
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+import type { ChatMessage, ContentBlock, SessionView } from '../../../shared/types.js';
+import { renderToolTrace } from './tool-trace.js';
+import { el, escape } from '../../shared/dom.js';
+const messages = el<HTMLDivElement>('messages');
+const markdown = (text: string): string =>
+  DOMPurify.sanitize(marked.parse(text, { async: false }) as string, {
+    FORBID_TAGS: ['img', 'iframe', 'form', 'input', 'style'],
+    FORBID_ATTR: ['style'],
+  });
+
+function renderUserText(text: string | undefined): string {
+  const skill = /^<skill name="([^"]+)" location="[^"]+">[\s\S]*<\/skill>\s*([\s\S]*)$/.exec(text ?? '');
+  return skill
+    ? `<span class="skill-invocation">使用 Skill · ${escape(skill[1])}</span>${escape(skill[2])}`
+    : escape(text);
 }
-.welcome {
-  max-width: 670px;
-  margin: 14vh auto 40px;
+
+function renderMessage(message: ChatMessage, index: number, active: SessionView | null, turn: number): string {
+  if (message.role === 'toolResult') return '';
+  if (!['user', 'assistant'].includes(message.role)) return '';
+  const blocks: ContentBlock[] =
+    typeof message.content === 'string'
+      ? [{ type: 'text', text: message.content }]
+      : message.content;
+  let body = '';
+  for (const [blockIndex, block] of blocks.entries()) {
+    if (block.type === 'text')
+      body += message.role === 'user' ? renderUserText(block.text) : markdown(block.text ?? '');
+    if (block.type === 'thinking' && block.thinking)
+      body += `<details class="thinking-block" data-key="thinking-${index}-${blockIndex}"><summary>思考过程</summary>${markdown(block.thinking)}</details>`;
+    if (block.type === 'image') body += '<p class="attachment-chip">图片附件</p>';
+    if (block.type === 'toolCall') body += renderToolTrace(block, active);
+  }
+  if (message.errorMessage && message.stopReason !== 'aborted') body += `<p class="form-error">${escape(message.errorMessage)}</p>`;
+  if (message.stopReason === 'aborted') body += '<p class="path-note">已停止</p>';
+  return `<article class="message ${message.role}"><div class="message-heading"><span class="avatar" aria-hidden="true">${message.role === 'user' ? '你' : 'π'}</span><strong>${message.role === 'user' ? '你' : 'Pi'}</strong>${message.role === 'assistant' ? `<span class="turn-label">第 ${turn} 轮</span>` : ''}${message.timestamp ? `<small>${new Date(message.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</small>` : ''}</div><div class="message-body">${body}</div></article>`;
 }
-.welcome h1 {
-  font-size: 30px;
-  letter-spacing: -0.03em;
-  font-weight: 500;
-  margin: 0 0 15px;
+export function renderMessages(active: SessionView | null): void {
+  const stick = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 180;
+  const openDetails = new Set(
+    [...messages.querySelectorAll<HTMLDetailsElement>('details[open]')].map(
+      (node) => node.dataset.key,
+    ),
+  );
+  if (!active || !active.messages.length)
+    messages.innerHTML = '<div class="welcome"><h1>从一个任务开始</h1><p>告诉 Pi 你想完成什么</p></div>';
+  else {
+    let turn = 0;
+    messages.innerHTML =
+      active.messages.map((message, index) => {
+        if (message.role === 'user') turn = 0;
+        if (message.role === 'assistant') turn++;
+        return renderMessage(message, index, active, turn);
+      }).join('') +
+      (active.running
+        ? '<div class="running-label" role="status"><span class="status-dot"></span>Agent 正在执行…</div>'
+        : '');
+  }
+  for (const detail of messages.querySelectorAll<HTMLDetailsElement>('details'))
+    if (openDetails.has(detail.dataset.key)) detail.open = true;
+  if (stick) messages.scrollTop = messages.scrollHeight;
 }
-.welcome p {
-  color: var(--muted);
-  line-height: 1.9;
-  font-size: 14px;
-}
-.message {
-  margin: 0 auto 30px;
-  max-width: 1080px;
-  min-width: 0;
-}
-.message-heading {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-  font-size: 12px;
-  margin-bottom: 12px;
-}
-.message-heading .avatar {
-  width: 25px;
-  height: 25px;
-  border-radius: 7px;
-  background: var(--selected);
-  display: grid;
-  place-items: center;
-  font: 18px Georgia;
-  color: var(--accent);
-}
-.message-heading small {
-  color: var(--muted);
-  font-size: 10px;
-  margin-left: 3px;
-}
-.message-body {
-  line-height: 1.9;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-}
-.message.user .message-body {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 16px;
-  white-space: pre-wrap;
-}
-.message-body > :first-child {
-  margin-top: 0;
-}
-.message-body > :last-child {
-  margin-bottom: 0;
-}
-.message-body pre,
-.tool-output {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 14px;
-  overflow: auto;
-  max-height: 420px;
-  white-space: pre-wrap;
-  font:
-    12px/1.7 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-}
-.message-body code {
-  font:
-    12px ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-}
-.message-body a {
-  color: var(--accent);
-}
-.message-body table {
-  border-collapse: collapse;
+
+.skill-invocation {
   display: block;
-  overflow: auto;
-}
-.message-body td,
-.message-body th {
-  border: 1px solid var(--border);
-  padding: 6px 12px;
-}
-.thinking-block {
   color: var(--muted);
-  border-left: 2px solid var(--border);
-  padding: 4px 12px;
-  margin: 10px 0;
-  font-size: 13px;
-}
-.thinking-block summary {
   font-size: 11px;
-}
-.tool-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin: 12px 0;
-  background: var(--elevated);
-  font-size: 12px;
-}
-.tool-card > summary {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 12px;
-  list-style: none;
-}
-.tool-card > summary small {
-  margin-left: auto;
-  color: var(--muted);
-}
-.tool-card .tool-output {
-  margin: 0 10px 10px;
-  border: 0;
-  border-radius: 4px;
-}
-.tool-card.failed {
-  border-color: var(--error);
-}
-.tool-card.failed > summary {
-  color: var(--error);
-}
-.running-label {
-  font-size: 12px;
-  color: var(--muted);
-  padding: 0 0 15px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.running-label .status-dot {
-  animation: pulse 1.5s ease infinite;
+  margin-bottom: 6px;
 }

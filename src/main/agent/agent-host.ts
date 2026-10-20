@@ -357,6 +357,10 @@ export class AgentHost {
       if (selected) agent.state.model = selected;
       entry.hasModel = !!selected;
       await entry.extensions.start(context.messages.length ? 'resume' : 'new');
+      entry.extensions.refreshTools(await createWorkspaceTools(cwd, permission, resources.getSkills().skills.map((skill) => skill.baseDir)));
+      for (const diagnostic of resources.getSkills().diagnostics)
+        warnings.add(`Skill：${diagnostic.message}`);
+      entry.warning = [...warnings].join('\n') || null;
       if (entry.hasModel) await entry.extensions.runner.emit({
         type: 'model_select', model: agent.state.model, previousModel: undefined, source: 'restore',
       });
@@ -396,6 +400,8 @@ export class AgentHost {
     }
     return {
       id,
+      skills: entry.resources.getSkills().skills.map((skill) => ({ name: skill.name, description: skill.description, path: skill.filePath })),
+      extensions: entry.resources.getExtensions().extensions.map((extension) => extension.path),
       cwd: entry.manager.getCwd(),
       name: entry.manager.getSessionName() || '新会话',
       messages: JSON.parse(JSON.stringify(messages)) as ChatMessage[],
@@ -434,7 +440,7 @@ export class AgentHost {
         );
         entry.extensions?.recordMessage(event.message, messageId);
       }
-      if (event.message.role === 'assistant' && event.message.errorMessage)
+      if (event.message.role === 'assistant' && event.message.errorMessage && event.message.stopReason !== 'aborted')
         entry.error = event.message.errorMessage;
     }
     if (event.type === 'tool_execution_start')
@@ -562,7 +568,7 @@ export class AgentHost {
     if (!isWorkspacePermission(permission)) throw new Error('无效的工作区权限');
     const entry = this.get(id);
     if (entry.busy) throw new Error('任务运行时不能修改工作区权限');
-    const tools = await createWorkspaceTools(entry.manager.getCwd(), permission);
+    const tools = await createWorkspaceTools(entry.manager.getCwd(), permission, entry.resources.getSkills().skills.map((skill) => skill.baseDir));
     this.assertAvailable(id);
     if (this.get(id) !== entry || entry.busy)
       throw new Error('会话状态已变化，请等待任务结束后重试');

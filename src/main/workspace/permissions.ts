@@ -10,14 +10,15 @@ export function isWorkspacePermission(value: unknown): value is WorkspacePermiss
 }
 
 /** 不改变 SDK 的工具协议或调度；仅通过公开 operations/spawnHook 接入文件权限。 */
-export async function createWorkspaceTools(cwd: string, permission: WorkspacePermission) {
+export async function createWorkspaceTools(cwd: string, permission: WorkspacePermission, resourceRoots: string[] = []) {
   if (!isWorkspacePermission(permission)) throw new Error('无效的工作区权限');
   if (permission === 'full-access') return createCodingTools(cwd);
   const root = await realpath(cwd);
-  const profile = sandboxProfile(root, permission);
+  const readOnlyRoots = await Promise.all(resourceRoots.map((path) => realpath(path)));
+  const profile = sandboxProfile(root, permission, readOnlyRoots);
   const supported = process.platform === 'darwin';
-  const inside = (path: string): boolean => {
-    const rel = relative(root, path);
+  const inside = (path: string, base = root): boolean => {
+    const rel = relative(base, path);
     return !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`);
   };
   async function guard(path: string, writing = false): Promise<string> {
@@ -29,7 +30,8 @@ export async function createWorkspaceTools(cwd: string, permission: WorkspacePer
     let ancestor = absolute;
     while (true) {
       try {
-        if (!inside(await realpath(ancestor)))
+        const actual = await realpath(ancestor);
+        if (!inside(actual) && (writing || !readOnlyRoots.some((base) => inside(actual, base))))
           throw new Error('工作区权限禁止通过符号链接访问项目目录以外的文件');
         if (writing && ancestor === absolute) {
           const target = await stat(absolute);

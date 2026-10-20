@@ -6,6 +6,8 @@ import {
 } from '@earendil-works/pi-ai';
 import {
   ExtensionRunner,
+  formatSkillsForPrompt,
+  stripFrontmatter,
   ModelRegistry,
   SessionManager,
   convertToLlm,
@@ -21,6 +23,7 @@ import {
   type ExtensionShortcut,
   type SettingsManager,
 } from '@earendil-works/pi-coding-agent';
+import { readFile } from 'node:fs/promises';
 import { expandTemplate } from './prompt-templates.js';
 
 function unsupported(): never {
@@ -277,7 +280,7 @@ export class ClientExtensions {
   }
 
   private promptOptions(): BuildSystemPromptOptions {
-    return { cwd: this.manager.getCwd(), customPrompt: this.basePrompt, selectedTools: this.agent.state.tools.map((tool) => tool.name) };
+    return { cwd: this.manager.getCwd(), customPrompt: this.basePrompt, skills: this.resources.getSkills().skills, selectedTools: this.agent.state.tools.map((tool) => tool.name) };
   }
 
   refreshTools(baseTools = this.baseTools): void {
@@ -328,7 +331,20 @@ export class ClientExtensions {
       const input = await this.runner.emitInput(text, images, 'interactive');
       if (input.action === 'handled') return undefined;
       if (input.action === 'transform') { text = input.text; images = input.images ?? images; }
-      text = expandTemplate(this.resources.getPrompts().prompts, text);
+      const skillCommand = /^\/skill:([^\s]+)(?:\s+([\s\S]*))?$/.exec(text);
+      if (skillCommand) {
+        if (!this.settings.getEnableSkillCommands()) throw new Error('当前 Pi 配置已关闭 Skill 命令');
+        const skill = this.resources.getSkills().skills.find((item) => item.name === skillCommand[1]);
+        if (!skill) throw new Error(`未找到 Skill：${skillCommand[1]}`);
+        const content = stripFrontmatter(await readFile(skill.filePath, 'utf8')).trim();
+        text = `<skill name="${skill.name}" location="${skill.filePath}">
+References are relative to ${skill.baseDir}.
+
+${content}
+</skill>
+
+${skillCommand[2] ?? ''}`;
+      } else text = expandTemplate(this.resources.getPrompts().prompts, text);
       this.pendingMessages.push({ role: 'user', content: [{ type: 'text', text }, ...images], timestamp: Date.now() });
     }
     const messages = this.pendingMessages.splice(0);
@@ -355,6 +371,7 @@ export class ClientExtensions {
       ...options.promptGuidelines,
       ...Object.entries(options.sections).map(([name, content]) => `<${name}>\n${content}\n</${name}>`),
       ...options.contextFiles.map((file) => `${file.path}\n${file.content}`),
+      formatSkillsForPrompt(options.skills),
     ].filter(Boolean).join('\n\n');
     for (const message of result.messages) {
       this.agent.state.messages = [...this.agent.state.messages, { ...message, role: 'custom', timestamp: Date.now() }];

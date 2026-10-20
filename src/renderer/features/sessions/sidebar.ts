@@ -15,7 +15,15 @@ export function bindSessionSidebar() {
   toggle.addEventListener('click', () => setExpanded(sidebar.hidden));
   const searchButton = el<HTMLButtonElement>('search-sessions');
   const searchBox = el('session-search-box');
+  const sessionToggle = el<HTMLButtonElement>('toggle-session-list');
+  const sessions = el('sessions');
+  function expandSessions(expanded: boolean): void {
+    sessions.hidden = !expanded;
+    sessionToggle.setAttribute('aria-expanded', String(expanded));
+  }
+  sessionToggle.addEventListener('click', () => expandSessions(sessions.hidden));
   function focusSearch(): void {
+    expandSessions(true);
     setExpanded(true);
     searchBox.hidden = false;
     searchButton.setAttribute('aria-expanded', 'true');
