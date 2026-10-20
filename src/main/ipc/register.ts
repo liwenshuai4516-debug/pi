@@ -1,6 +1,6 @@
-import { dialog, ipcMain, type BrowserWindow } from 'electron';
+import { app, dialog, ipcMain, type BrowserWindow } from 'electron';
 import { join, basename } from 'node:path';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import {
   ProjectTrustStore,
   hasTrustRequiringProjectResources,
@@ -71,12 +71,17 @@ export function registerAgentIpc(
     return response === 1;
   }
   handle('agent:initialize', async () => {
+    // 专用目录使普通对话无需先授权整个用户目录或选择项目。
+    const defaultCwd = join(app.getPath('userData'), 'workspace');
+    await mkdir(defaultCwd, { recursive: true });
+    allowedProjects.add(defaultCwd);
     const sessions = await host.list();
     try {
-      return { sessions, models: await host.models(), configDirectory: host.agentDir };
+      return { sessions, models: await host.models(), configDirectory: host.agentDir, defaultCwd };
     } catch (error) {
       return {
         sessions,
+        defaultCwd,
         models: [],
         configDirectory: host.agentDir,
         modelError: error instanceof Error ? error.message : '模型配置加载失败',

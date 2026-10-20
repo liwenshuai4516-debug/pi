@@ -71,6 +71,7 @@ export interface ModelConfigInput {
   reasoning?: boolean;
 }
 export interface InitialState {
+  defaultCwd: string;
   sessions: SessionSummary[];
   models: ModelChoice[];
   configDirectory: string;

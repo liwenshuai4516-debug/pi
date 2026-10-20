@@ -23,24 +23,28 @@
       </header>
       <div class="workspace">
         <aside id="session-sidebar" class="sidebar">
-          <div class="eyebrow">工作空间</div>
-          <button id="project-picker" class="project-picker">
-            <span class="project-icon" aria-hidden="true">P</span
-            ><span
-              ><strong id="project-name">选择项目</strong
-              ><small id="project-caption">本地工作目录</small></span
-            ><span aria-hidden="true">⌄</span>
-          </button>
-          <button id="new-session" class="new-chat" disabled>
-            <span aria-hidden="true">＋</span> 新建会话 <kbd>⌘ N</kbd>
-          </button>
-          <div class="search">
-            <span aria-hidden="true">⌕</span
-            ><input id="session-search" placeholder="搜索会话…" aria-label="搜索会话" /><kbd
-              >⌘ K</kbd
-            >
+          <div class="sidebar-header">
+            <strong>Pi Agent</strong>
+            <button id="search-sessions" class="icon-button" aria-label="搜索会话"
+              aria-controls="session-search-box" aria-expanded="false" title="搜索会话（⌘/Ctrl+K）">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="7" /><path d="m16 16 5 5" />
+              </svg>
+            </button>
           </div>
-          <div class="side-heading"><span>会话</span><span id="session-count">0</span></div>
+          <button id="new-session" class="new-chat" disabled>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+              <path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-5 6-6 5 5-6 6-5 2Z" />
+            </svg>
+            新建对话 <kbd>⌘ N</kbd>
+          </button>
+          <div id="session-search-box" class="search" hidden>
+            <input id="session-search" placeholder="搜索会话…" aria-label="搜索会话" />
+            <kbd>⌘ K</kbd>
+          </div>
+          <div class="side-heading"><span>最近会话</span><span id="session-count">0</span></div>
           <nav id="sessions" aria-label="历史会话"><p class="side-empty">正在读取会话…</p></nav>
           <div class="sidebar-bottom">
             <button id="settings-button">
@@ -84,12 +88,22 @@
               </svg>
             </button>
           </div>
-          <div id="project-path" class="context-bar">选择项目，让 Agent 从你的工作目录开始</div>
+          <div id="project-path" class="context-bar" hidden></div>
           <div id="messages" class="messages" aria-label="会话内容"></div>
           <div class="composer-area">
             <div id="error-banner" class="error-banner" role="alert" hidden></div>
             <div id="warning-banner" class="warning-banner" hidden></div>
             <div id="attachments" class="attachments"></div>
+            <div class="composer-workspace">
+              <button id="project-picker" class="workspace-picker" title="选择工作区">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                  <path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+                </svg>
+                <span id="project-name">选择工作区</span>
+                <span aria-hidden="true">⌄</span>
+              </button>
+            </div>
             <div class="composer">
               <textarea
                 id="prompt"
@@ -138,7 +152,7 @@
                     </summary>
                     <div class="popover-content">
                       <strong>提示模板</strong>
-                      <div id="template-list"><p>选择项目并新建会话后加载。</p></div>
+                      <div id="template-list"><p>新建对话后加载。</p></div>
                     </div>
                   </details>
                   <select id="model" aria-label="模型" disabled>

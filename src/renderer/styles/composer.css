@@ -5,9 +5,29 @@
   padding: 10px 28px 12px;
   flex-shrink: 0;
 }
+.composer-workspace {
+  display: flex;
+  margin-bottom: 8px;
+}
+.workspace-picker {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.workspace-picker span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .composer {
-  border-left: 3px solid var(--accent);
-  border-radius: 5px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
   background: var(--elevated);
 }
 .composer textarea {
@@ -173,4 +193,18 @@
 }
 .attachment-chip button {
   border-radius: 3px;
+}
+
+/* 新对话将输入区作为视觉中心；有消息后恢复底部输入布局。 */
+.empty-chat .messages {
+  flex: 0 1 auto;
+  margin-top: auto;
+}
+.empty-chat .welcome {
+  margin: 0 auto;
+  text-align: center;
+}
+.empty-chat .composer-area {
+  max-width: 860px;
+  margin-bottom: auto;
 }

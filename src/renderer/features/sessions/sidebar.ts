@@ -1,6 +1,6 @@
 import { el } from '../../shared/dom.js';
 
-export function bindSessionSidebar(): (expanded: boolean) => void {
+export function bindSessionSidebar() {
   const sidebar = el('session-sidebar');
   const toggle = el<HTMLButtonElement>('toggle-sidebar');
   function setExpanded(expanded: boolean): void {
@@ -13,5 +13,24 @@ export function bindSessionSidebar(): (expanded: boolean) => void {
     toggle.title = label;
   }
   toggle.addEventListener('click', () => setExpanded(sidebar.hidden));
-  return setExpanded;
+  const searchButton = el<HTMLButtonElement>('search-sessions');
+  const searchBox = el('session-search-box');
+  function focusSearch(): void {
+    setExpanded(true);
+    searchBox.hidden = false;
+    searchButton.setAttribute('aria-expanded', 'true');
+    el<HTMLInputElement>('session-search').focus();
+  }
+  searchButton.addEventListener('click', () => {
+    if (searchBox.hidden) focusSearch();
+    else {
+      searchBox.hidden = true;
+      searchButton.setAttribute('aria-expanded', 'false');
+      const input = el<HTMLInputElement>('session-search');
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      searchButton.focus();
+    }
+  });
+  return { focusSearch };
 }

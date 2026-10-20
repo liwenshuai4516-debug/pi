@@ -9,13 +9,6 @@
   max-width: 670px;
   margin: 14vh auto 40px;
 }
-.welcome-logo {
-  font:
-    56px Georgia,
-    serif;
-  color: var(--accent);
-  margin-bottom: 20px;
-}
 .welcome h1 {
   font-size: 30px;
   letter-spacing: -0.03em;
@@ -26,9 +19,6 @@
   color: var(--muted);
   line-height: 1.9;
   font-size: 14px;
-}
-.welcome button {
-  margin-top: 20px;
 }
 .message {
   margin: 0 auto 30px;

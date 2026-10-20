@@ -74,6 +74,35 @@ try {
   });
   assert.match(rejected, /目录选择器/);
   pass('IPC rejects project paths not selected by the user');
+  await until(async () => !(await page.locator('#prompt').isDisabled()));
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'prompt');
+  assert.equal(await page.locator('#project-name').textContent(), '选择工作区');
+  assert.equal(await page.locator('#session-sidebar #project-picker').count(), 0);
+  assert.equal(await page.locator('.composer-area #project-picker').count(), 1);
+  assert.equal(await page.locator('[data-choose-project]').count(), 0);
+  assert.equal(await page.locator('#project-path').isVisible(), false);
+  assert.equal(await page.locator('#new-session').isDisabled(), false);
+  assert.equal(await page.locator('.chat-panel').evaluate((node) => node.classList.contains('empty-chat')), true);
+  await page.screenshot({ path: join(evidence, 'startup-chat.png') });
+  const initial = await page.evaluate(() => window.agentClient.initialize());
+  assert.equal(initial.defaultCwd, join(fixture.root, 'desktop', 'workspace'));
+  const startupId = await page.locator('[data-session].active').getAttribute('data-session');
+  const startupView = await page.evaluate((id) => window.agentClient.openSession(id), startupId);
+  assert.equal(startupView.cwd, initial.defaultCwd);
+  await page.locator('#prompt').fill('DEFAULT_CHAT：无需选择工作区直接对话');
+  await page.locator('#prompt').press('Enter');
+  await page.getByText('会话已继续。', { exact: false }).waitFor();
+  await until(async () => (await page.locator('#send').getAttribute('aria-label')) === '发送任务');
+  assert.equal(fixture.state.requests, 1);
+  pass('startup focuses a ready chat; real SDK sends from app-owned default workspace without choosing a project');
+  await page.locator('#new-session').click();
+  await page.locator('#prompt').fill('选择工作区前输入的任务');
+  await app.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+  });
+  await page.locator('#project-picker').click();
+  assert.equal(await page.locator('#prompt').inputValue(), '选择工作区前输入的任务');
+  assert.equal(await page.locator('#project-name').textContent(), '选择工作区');
   await app.evaluate(({ dialog }, project) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [project] });
   }, fixture.project);
@@ -81,6 +110,11 @@ try {
   await page.locator('#project-name').filter({ hasText: '测试项目 with spaces' }).waitFor();
   await page.locator('#prompt').waitFor({ state: 'visible' });
   await until(async () => !(await page.locator('#prompt').isDisabled()));
+  assert.equal(await page.locator('#prompt').inputValue(), '选择工作区前输入的任务');
+  assert.equal(await page.locator('#project-path').isVisible(), true);
+  assert.ok((await page.locator('#project-picker').getAttribute('title')).includes(fixture.project));
+  pass('composer workspace picker handles cancellation and preserves unsent task when switching to a selected project');
+  const beforeIme = fixture.state.requests;
   const captures = await page.evaluate(() => {
     window.__testViews = [];
     window.agentClient.onSession((view) => window.__testViews.push(view));
@@ -97,7 +131,7 @@ try {
     node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true }));
     node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true }));
   });
-  assert.equal(fixture.state.requests, 0);
+  assert.equal(fixture.state.requests, beforeIme);
   await page.locator('#prompt').fill('WRITE_FIXTURE：请使用工具写入测试文件');
   await page.locator('#prompt').press('Shift+Enter');
   assert.ok((await page.locator('#prompt').inputValue()).endsWith('\n'));
@@ -311,6 +345,11 @@ try {
   await page.screenshot({ path: join(evidence, 'narrow-collapsed.png') });
   await page.locator('#toggle-sidebar').click();
   pass('900px desktop layout has no horizontal page overflow with sidebar expanded or collapsed');
+  await page.locator('#search-sessions').click();
+  assert.equal(await page.locator('#session-search-box').isVisible(), false);
+  await page.locator('#search-sessions').click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'session-search');
+  pass('sidebar header search button opens and closes search with keyboard focus');
   const before = fixture.state.requests;
   await app.evaluate(({ app }) => app.quit());
   await app.waitForEvent('close', { timeout: 20000 }).catch(() => {});

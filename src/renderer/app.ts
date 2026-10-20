@@ -21,7 +21,7 @@ import type {
   SessionView,
 } from '../shared/types.js';
 const api = window.agentClient;
-const setSidebarExpanded = bindSessionSidebar();
+const { focusSearch } = bindSessionSidebar();
 const prompt = el<HTMLTextAreaElement>('prompt');
 const send = el<HTMLButtonElement>('send');
 const messages = el<HTMLDivElement>('messages');
@@ -42,6 +42,7 @@ const drafts = new Map<
 >();
 let active: SessionView | null = null;
 let cwd: string | null = null;
+let defaultCwd: string | null = null;
 let models: ModelChoice[] = [];
 let sessions: SessionSummary[] = [];
 let images: ImageAttachment[] = [],
@@ -112,6 +113,7 @@ function updateControls(): void {
     ? '<svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><rect x="2" y="2" width="10" height="10" rx="2"/></svg>'
     : '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V4m-6 6 6-6 6 6"/></svg>';
   el<HTMLButtonElement>('new-session').disabled = !cwd || navigating;
+  el<HTMLButtonElement>('project-picker').disabled = navigating || configuring || Boolean(busy);
   el('global-status').textContent = busy
     ? 'Agent 执行中'
     : models.length
@@ -125,9 +127,16 @@ function updateControls(): void {
 }
 function renderView(): void {
   el('chat-title').textContent = active?.name ?? '新会话';
-  el('project-name').textContent = cwd ? nameOf(cwd) : '选择项目';
-  el('project-caption').textContent = '本地工作目录';
-  el('project-path').textContent = active?.cwd ?? cwd ?? '选择项目，让 Agent 从你的工作目录开始';
+  const workspace = active?.cwd ?? cwd;
+  const isDefaultWorkspace = workspace === defaultCwd;
+  el('project-name').textContent = workspace && !isDefaultWorkspace ? nameOf(workspace) : '选择工作区';
+  el('project-picker').title = workspace
+    ? `${isDefaultWorkspace ? '当前使用应用默认目录' : '当前工作区'}：${workspace}；点击选择工作区`
+    : '选择工作区';
+  el('project-path').textContent = workspace ?? '';
+  el('project-path').hidden = !workspace || isDefaultWorkspace;
+  document.querySelector('.chat-panel')!.classList.toggle('empty-chat', !active?.messages.length);
+  el('new-session').classList.toggle('selected', Boolean(active && !active.messages.length));
   renderThinking(active);
   const templates = active?.templates ?? [];
   el('template-list').innerHTML = templates.length
@@ -151,11 +160,22 @@ function renderView(): void {
   updateControls();
 }
 async function chooseProject(): Promise<void> {
+  if (navigating || configuring || active?.running) return;
   const selected = await api.selectProject();
   if (!selected) return;
+  const draft = { text: prompt.value, images: [...images], files: [...files] };
+  const previousId = active?.id;
   storeDraft();
   cwd = selected;
   await newSession();
+  // 将草稿转移到新工作区，避免原会话残留一份重复草稿。
+  if (previousId) drafts.delete(previousId);
+  prompt.value = draft.text;
+  images = draft.images;
+  files = draft.files;
+  renderAttachments();
+  storeDraft();
+  updateControls();
 }
 async function newSession(): Promise<void> {
   if (!cwd || navigating) return;
@@ -166,11 +186,11 @@ async function newSession(): Promise<void> {
     active = await api.createSession(cwd);
     restoreDraft();
     renderView();
-    prompt.focus();
   } finally {
     navigating = false;
     updateControls();
   }
+  prompt.focus();
 }
 async function openSession(id: string): Promise<void> {
   if (id === active?.id || navigating) return;
@@ -277,9 +297,6 @@ el('sessions').addEventListener('click', (event) => {
   const row = (event.target as HTMLElement).closest<HTMLElement>('[data-session]');
   if (row?.dataset.session) void run(() => openSession(row.dataset.session!));
 });
-messages.addEventListener('click', (event) => {
-  if ((event.target as HTMLElement).closest('[data-choose-project]')) void run(chooseProject);
-});
 el('session-search').addEventListener('input', renderSessions);
 el('toggle-info').addEventListener('click', () => {
   const info = el('info-panel');
@@ -339,8 +356,7 @@ document.addEventListener('keydown', (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
     event.preventDefault();
-    setSidebarExpanded(true);
-    el<HTMLInputElement>('session-search').focus();
+    focusSearch();
   }
   if ((event.metaKey || event.ctrlKey) && event.key === ',') {
     event.preventDefault();
@@ -370,6 +386,8 @@ void run(async () => {
   sessions = initial.sessions;
   models = initial.models;
   el('config-directory').textContent = `配置目录：${initial.configDirectory}`;
-  renderView();
+  defaultCwd = initial.defaultCwd;
+  cwd = defaultCwd;
+  await newSession();
   if (initial.modelError) showError(initial.modelError);
 });

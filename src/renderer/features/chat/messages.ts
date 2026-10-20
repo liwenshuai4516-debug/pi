@@ -62,7 +62,7 @@ export function renderMessages(active: SessionView | null): void {
     ),
   );
   if (!active || !active.messages.length)
-    messages.innerHTML = `<div class="welcome"><div class="welcome-logo" aria-hidden="true">π</div><h1>从一个任务开始</h1><p>${active ? '告诉 Pi 你想完成什么。它可以阅读项目、编写代码、执行工具，并把过程展示在这里。' : '选择一个本地项目，与 Pi 一起阅读代码、实现功能、解决问题。'}</p>${!active ? '<button class="primary-button" data-choose-project>选择项目</button>' : ''}</div>`;
+    messages.innerHTML = '<div class="welcome"><h1>从一个任务开始</h1><p>告诉 Pi 你想完成什么</p></div>';
   else
     messages.innerHTML =
       active.messages.map((message, index) => renderMessage(message, index, active)).join('') +
