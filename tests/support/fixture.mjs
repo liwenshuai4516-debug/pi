@@ -87,6 +87,7 @@ export async function setupFixture() {
         });
         send({}, 'tool_calls');
       } else if (prompt.includes('WRITE_FIXTURE') && !hasToolResult) {
+        send({ reasoning_content: '先确认目标文件路径，再使用写入工具完成任务。' });
         send({
           tool_calls: [
             {

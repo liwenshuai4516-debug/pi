@@ -4,6 +4,7 @@ import type { ChatMessage, ContentBlock, SessionView } from '../../../shared/typ
 import { renderToolTrace } from './tool-trace.js';
 import { el, escape } from '../../shared/dom.js';
 const messages = el<HTMLDivElement>('messages');
+let renderedSessionId: string | undefined;
 const markdown = (text: string): string =>
   DOMPurify.sanitize(marked.parse(text, { async: false }) as string, {
     FORBID_TAGS: ['img', 'iframe', 'form', 'input', 'style'],
@@ -29,7 +30,7 @@ function renderMessage(message: ChatMessage, index: number, active: SessionView 
     if (block.type === 'text')
       body += message.role === 'user' ? renderUserText(block.text) : markdown(block.text ?? '');
     if (block.type === 'thinking' && block.thinking)
-      body += `<details class="thinking-block" data-key="thinking-${index}-${blockIndex}"><summary>思考过程</summary>${markdown(block.thinking)}</details>`;
+      body += `<details class="thinking-block" open data-key="thinking-${index}-${blockIndex}"><summary>思考过程</summary>${markdown(block.thinking)}</details>`;
     if (block.type === 'image') body += '<p class="attachment-chip">图片附件</p>';
     if (block.type === 'toolCall') body += renderToolTrace(block, active);
   }
@@ -39,11 +40,14 @@ function renderMessage(message: ChatMessage, index: number, active: SessionView 
 }
 export function renderMessages(active: SessionView | null): void {
   const stick = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 180;
-  const openDetails = new Set(
-    [...messages.querySelectorAll<HTMLDetailsElement>('details[open]')].map(
-      (node) => node.dataset.key,
-    ),
+  // 同一会话流式刷新保留手动展开/收起；切换会话不继承其他对话的状态。
+  const detailsState = new Map(
+    renderedSessionId === active?.id
+      ? [...messages.querySelectorAll<HTMLDetailsElement>('details[data-key]')].map(
+        (node) => [node.dataset.key, node.open] as const,
+      ) : [],
   );
+  renderedSessionId = active?.id;
   if (!active || !active.messages.length)
     messages.innerHTML = '<div class="welcome"><h1>从一个任务开始</h1><p>告诉 Pi 你想完成什么</p></div>';
   else {
@@ -59,6 +63,6 @@ export function renderMessages(active: SessionView | null): void {
         : '');
   }
   for (const detail of messages.querySelectorAll<HTMLDetailsElement>('details'))
-    if (openDetails.has(detail.dataset.key)) detail.open = true;
+    if (detailsState.has(detail.dataset.key)) detail.open = detailsState.get(detail.dataset.key)!;
   if (stick) messages.scrollTop = messages.scrollHeight;
 }

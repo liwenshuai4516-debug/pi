@@ -167,7 +167,21 @@ try {
   );
   await page.locator('.tool-card summary').click();
   await page.locator('.tool-card').getByText('完成', { exact: true }).waitFor();
+  const thought = page.locator('.thinking-block').first();
+  await thought.getByText('先确认目标文件路径，再使用写入工具完成任务。', { exact: true }).waitFor();
+  assert.equal(await thought.evaluate((node) => node.open), true);
+  assert.equal(await thought.locator('p').evaluate((node) => getComputedStyle(node).fontStyle), 'italic');
+  assert.equal(await page.locator('.message-heading').first().evaluate((node) => getComputedStyle(node).display), 'flex');
+  assert.equal(await page.locator('.tool-card summary').first().evaluate((node) => getComputedStyle(node).display), 'flex');
   await page.screenshot({ path: join(evidence, 'agent-client.png') });
+  await thought.locator('summary').press('Enter');
+  await page.evaluate(async () => {
+    const view = window.__testViews.at(-1);
+    await window.agentClient.setThinking(view.id, view.thinking);
+  });
+  assert.equal(await thought.evaluate((node) => node.open), false);
+  await thought.locator('summary').press('Enter');
+  assert.equal(await thought.evaluate((node) => node.open), true);
   pass(
     'Enter sends through real SDK; Shift+Enter adds newline; IME confirmation/repeat never sends',
   );
