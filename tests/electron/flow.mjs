@@ -4,6 +4,13 @@ import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { setupFixture, until } from '../support/fixture.mjs';
 const fixture = await setupFixture();
+await mkdir(join(fixture.agentDir, 'extensions'));
+await writeFile(join(fixture.agentDir, 'extensions', 'desktop.ts'), `
+import { writeFileSync } from 'node:fs';
+export default (pi) => pi.registerCommand('desktop-extension', {
+  handler: (_, ctx) => writeFileSync(ctx.cwd + '/desktop-extension.txt', 'EXTENSION_EXECUTED'),
+});
+`);
 const evidence = resolve(
   process.env.PI_AGENT_EXECUTABLE ? 'evidence/packaged' : 'evidence/electron',
 );
@@ -115,6 +122,16 @@ try {
     'Enter sends through real SDK; Shift+Enter adds newline; IME confirmation/repeat never sends',
   );
   pass('real composer → direct SDK streaming → write tool → actual file and tool result');
+  const beforeExtension = fixture.state.requests;
+  await page.locator('#prompt').fill('/desktop-extension');
+  await page.locator('#prompt').press('Enter');
+  await until(async () => {
+    try { return (await readFile(join(fixture.project, 'desktop-extension.txt'), 'utf8')) === 'EXTENSION_EXECUTED'; }
+    catch { return false; }
+  });
+  await until(async () => (await page.locator('#send').getAttribute('aria-label')) === '发送任务');
+  assert.equal(fixture.state.requests, beforeExtension);
+  pass('Pi extension loads in Electron main and composer slash command executes without a model request');
   assert.equal(await page.getByText('只读工具', { exact: true }).count(), 0);
   await page.locator('#permissions summary').click();
   assert.equal(await page.locator('#workspace-permission').inputValue(), 'workspace');

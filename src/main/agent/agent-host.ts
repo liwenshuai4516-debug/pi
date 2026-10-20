@@ -4,8 +4,8 @@ import {
   PERMISSION_ENTRY,
 } from '../workspace/permissions.js';
 import { listSavedSessions } from '../sessions/catalog.js';
-import { expandTemplate } from './prompt-templates.js';
 import { DEFAULT_SYSTEM_PROMPT } from './system-prompt.js';
+import { ClientExtensions } from './extensions.js';
 import { join } from 'node:path';
 import { stat, unlink } from 'node:fs/promises';
 import {
@@ -34,6 +34,7 @@ type Entry = {
   agent: Agent;
   manager: SessionManager;
   resources: DefaultResourceLoader;
+  extensions?: ClientExtensions;
   permission: WorkspacePermission;
   hasModel: boolean;
   busy: boolean;
@@ -194,12 +195,13 @@ export class AgentHost {
     await this.manage(id, async (manager) => {
       const entry = this.entries.get(id);
       if (entry) {
-        entry.agent.abort();
+        entry.extensions?.abort();
         await entry.agent.waitForIdle();
         // 等待 send 的持久化、列表刷新和 finally 全部收尾，再删除文件，防止历史被重新写回。
         await entry.completion;
       }
       const path = manager.getSessionFile();
+      await entry?.extensions?.close();
       if (path) {
         try {
           await unlink(path);
@@ -234,12 +236,11 @@ export class AgentHost {
       available.find(
         (item) => item.provider === preferred.provider && item.id === preferred.modelId,
       ) ?? available[0];
-    // 仅加载声明式资源；直接使用 Agent 时不启动 AgentSession 或扩展执行生命周期。
+    // 资源加载遵循 SDK 项目信任；扩展生命周期由独立适配器绑定至直接创建的 Agent。
     const resources = new DefaultResourceLoader({
       cwd,
       agentDir: this.agentDir,
       settingsManager: settings,
-      noExtensions: true,
     });
     await resources.reload();
     const systemPrompt = [
@@ -309,7 +310,6 @@ export class AgentHost {
         );
       },
     });
-    if (model && !context.model) manager.appendModelChange(model.provider, model.id);
     const id = manager.getSessionId();
     const entry: Entry = {
       agent,
@@ -321,13 +321,50 @@ export class AgentHost {
       error: null,
       warning:
         process.platform === 'darwin'
-          ? '扩展运行时尚未接入。'
-          : '扩展运行时尚未接入；当前系统受限文件和命令沙箱不可用，受限操作将被拒绝。',
+          ? null
+          : '当前系统受限文件和命令沙箱不可用，受限操作将被拒绝。',
       tools: new Map(),
       unsubscribe: () => {},
     };
     this.entries.set(id, entry);
-    entry.unsubscribe = agent.subscribe((event) => this.handleEvent(id, event));
+    try {
+      const warnings = new Set(entry.warning ? [entry.warning] : []);
+      entry.extensions = new ClientExtensions(
+        agent, manager, resources, settings, runtime, systemPrompt,
+        (message) => {
+          warnings.add(message);
+          entry.warning = [...warnings].join('\n');
+          this.emit(id);
+        },
+      );
+      entry.unsubscribe = agent.subscribe(async (event) => {
+        await entry.extensions!.event(event);
+        this.handleEvent(id, event);
+      });
+      // 扩展可在工厂阶段注册提供商；绑定后重新选择，避免错过扩展新增的默认模型。
+      const extensionModels = await runtime.getAvailable();
+      const selected =
+        extensionModels.find(
+          (item) => item.provider === preferred.provider && item.id === preferred.modelId,
+        ) ??
+        extensionModels.find(
+          (item) => item.provider === agent.state.model.provider && item.id === agent.state.model.id,
+        ) ?? extensionModels[0];
+      if (selected) agent.state.model = selected;
+      entry.hasModel = !!selected;
+      await entry.extensions.start(context.messages.length ? 'resume' : 'new');
+      if (
+        entry.hasModel &&
+        (context.model?.provider !== agent.state.model.provider ||
+          context.model?.modelId !== agent.state.model.id)
+      )
+        manager.appendModelChange(agent.state.model.provider, agent.state.model.id);
+    } catch (error) {
+      await entry.extensions?.close();
+      entry.unsubscribe();
+      this.entries.delete(id);
+      throw error;
+    }
     this.emit(id);
     await this.publishList();
     return this.view(id);
@@ -382,7 +419,10 @@ export class AgentHost {
         event.message.role === 'system'
       ) {
         entry.manager.appendMessage(event.message);
-      }
+      } else if (event.message.role === 'custom')
+        entry.manager.appendCustomMessageEntry(
+          event.message.customType, event.message.content, event.message.display, event.message.details,
+        );
       if (event.message.role === 'assistant' && event.message.errorMessage)
         entry.error = event.message.errorMessage;
     }
@@ -421,9 +461,9 @@ export class AgentHost {
     if (entry.busy || entry.agent.state.isStreaming)
       throw new Error('当前任务仍在运行，请先停止或等待完成');
     if (!text.trim() && !images.length && !files.length) throw new Error('请输入任务');
-    if (!entry.hasModel) throw new Error('请先配置并选择模型');
     entry.error = null;
     entry.busy = true;
+    entry.extensions!.begin();
     let finish!: () => void;
     entry.completion = new Promise<void>((resolve) => {
       finish = resolve;
@@ -435,14 +475,19 @@ export class AgentHost {
       const references = files
         .map((file) => `\n附件文件路径：${JSON.stringify(file.path)}`)
         .join('');
-      await entry.agent.prompt(
-        expandTemplate(entry.resources.getPrompts().prompts, text) + references,
+      const prepared = await entry.extensions!.prepare(
+        text + references,
         images.map((image) => ({ type: 'image', data: image.data, mimeType: image.mimeType })),
       );
+      if (prepared) {
+        if (!entry.hasModel) throw new Error('请先配置并选择模型');
+        await entry.agent.prompt(prepared);
+      }
     } catch (error) {
       entry.error = error instanceof Error ? error.message : '任务执行失败';
       throw error;
     } finally {
+      entry.extensions!.finish();
       entry.busy = false;
       entry.live = undefined;
       try {
@@ -454,9 +499,10 @@ export class AgentHost {
     }
   }
   async stop(id: string): Promise<void> {
-    const agent = this.get(id).agent;
-    agent.abort();
-    await agent.waitForIdle();
+    const entry = this.get(id);
+    entry.extensions!.abort();
+    await entry.agent.waitForIdle();
+    await entry.completion;
   }
   async setModel(id: string, provider: string, modelId: string): Promise<SessionView> {
     this.assertAvailable(id);
@@ -490,7 +536,7 @@ export class AgentHost {
     if (this.get(id) !== entry || entry.busy)
       throw new Error('会话状态已变化，请等待任务结束后重试');
     entry.manager.appendCustomEntry(PERMISSION_ENTRY, { mode: permission });
-    entry.agent.state.tools = tools;
+    entry.extensions!.refreshTools(tools);
     entry.permission = permission;
     this.emit(id);
     return this.view(id);
@@ -517,8 +563,10 @@ export class AgentHost {
     await Promise.all(
       [...this.entries.values()].map(async (entry) => {
         // abort 只发送取消信号；等待工具和事件回调收尾后再解除订阅。
-        entry.agent.abort();
+        entry.extensions?.abort();
         await entry.agent.waitForIdle();
+        await entry.completion;
+        await entry.extensions?.close();
         entry.unsubscribe();
         if (entry.timer) clearTimeout(entry.timer);
       }),

@@ -53,7 +53,12 @@ export async function setupFixture() {
         });
         return;
       }
-      if (prompt.includes('LONG_BASH') && !hasToolResult) {
+      if (prompt.includes('EXTENSION_TOOL') && !hasToolResult) {
+        send({ tool_calls: [{ index: 0, id: 'extension-fixture', type: 'function', function: {
+                name: prompt.includes('EXTENSION_TOOL_NESTED') ? 'qa_nested' : 'qa_echo', arguments: JSON.stringify({ text: '真实扩展工具' }),
+        } }] });
+        send({}, 'tool_calls');
+      } else if (prompt.includes('LONG_BASH') && !hasToolResult) {
         const quotedPidPath = "'" + pidPath.replaceAll("'", "'\\''") + "'";
         send({
           tool_calls: [
