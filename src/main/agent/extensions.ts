@@ -7,11 +7,18 @@ import {
 import {
   ExtensionRunner,
   ModelRegistry,
+  SessionManager,
+  convertToLlm,
+  estimateTokens,
+  initTheme,
   wrapRegisteredTools,
   type BuildSystemPromptOptions,
   type DefaultResourceLoader,
   type ModelRuntime,
-  type SessionManager,
+  type SessionBoundaryDraft,
+  type BoundaryContextPreview,
+  type AgentActivityOutcome,
+  type ExtensionShortcut,
   type SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 import { expandTemplate } from './prompt-templates.js';
@@ -32,6 +39,9 @@ export class ClientExtensions {
   private nestedCall = 0;
   private pendingMessages: AgentMessage[] = [];
   private ending = false;
+  private messageIds = new WeakMap<AgentMessage, string>();
+  private shortcutHandlers = new Map<string, ExtensionShortcut>();
+  private shortcutSignal = new AbortController();
 
   constructor(
     private agent: Agent,
@@ -45,6 +55,8 @@ export class ClientExtensions {
     this.baseTools = agent.state.tools;
     this.prompt = basePrompt;
     const loaded = resources.getExtensions();
+    // 无终端 UI 的扩展也可能用 theme 格式化文本；初始化内置主题且不启动文件监听。
+    initTheme('light', false);
     this.runner = new ExtensionRunner(
       loaded.extensions, loaded.runtime, manager.getCwd(), manager, new ModelRegistry(runtime),
     );
@@ -97,12 +109,14 @@ export class ClientExtensions {
       setModel: async (model) => {
         const selected = runtime.getModel(model.provider, model.id);
         if (!selected || !runtime.hasConfiguredAuth(selected.provider)) return false;
+        const previousModel = agent.state.model;
         agent.state.model = selected;
         manager.appendModelChange(selected.provider, selected.id);
         if (!getSupportedThinkingLevels(selected).includes(agent.state.thinkingLevel)) {
           agent.state.thinkingLevel = 'off';
           manager.appendThinkingLevelChange('off');
         }
+        await runner.emit({ type: 'model_select', model: selected, previousModel, source: 'set' });
         return true;
       },
       getThinkingLevel: () => agent.state.thinkingLevel,
@@ -116,7 +130,7 @@ export class ClientExtensions {
       getScopedModels: () => [],
       isIdle: () => !this.controller && !agent.state.isStreaming,
       isProjectTrusted: () => settings.isProjectTrusted(),
-      getSignal: () => agent.signal ?? this.controller?.signal,
+      getSignal: () => agent.signal ?? this.controller?.signal ?? this.shortcutSignal.signal,
       abort: () => this.abort(),
       hasPendingMessages: () => agent.hasQueuedMessages(),
       shutdown: () => this.abort(),
@@ -153,16 +167,113 @@ export class ClientExtensions {
       return runner.emitContext(transformed);
     };
     agent.onPayload = (payload) => runner.emitBeforeProviderRequest(payload);
+    // 只在 Agent 原生调度边界提出续跑决定，不自行创建模型执行循环。
+    agent.finishTurn = async (turn) => {
+      const outcome: AgentActivityOutcome = turn.message.stopReason === 'aborted' ? 'aborted'
+        : turn.message.stopReason === 'error' ? 'error' : 'completed';
+      const messageEntryId = this.messageIds.get(turn.message);
+      let continueRun = false;
+      if (runner.hasHandlers('turn_end') && messageEntryId) {
+        const result = await runner.emitBoundary({
+          type: 'turn_end', turnIndex: Math.max(0, this.turnIndex - 1),
+          message: turn.message, toolResults: turn.toolResults, messageEntryId,
+          toolResultEntryIds: turn.toolResults.flatMap((message) => this.messageIds.get(message) ?? []),
+          outcome,
+        }, (drafts) => this.previewBoundary(drafts));
+        if (result.valid) this.commitBoundary(result.entries);
+        continueRun = result.continue && this.previewBoundary([]).canContinue;
+        if (result.continue && !continueRun) this.report('扩展 turn_end 请求续跑，但没有可执行的模型上下文');
+      }
+      if (!continueRun && outcome === 'completed' && !turn.toolResults.length && !agent.hasQueuedMessages() && runner.hasHandlers('agent_before_settle')) {
+        const result = await runner.emitBoundary({ type: 'agent_before_settle', outcome }, (drafts) => this.previewBoundary(drafts));
+        if (result.valid) this.commitBoundary(result.entries);
+        continueRun = result.continue && this.previewBoundary([]).canContinue;
+        if (result.continue && !continueRun) this.report('扩展 agent_before_settle 请求续跑，但没有可执行的模型上下文');
+      }
+      return continueRun ? { action: 'continue' } : undefined;
+    };
+    agent.prepareNextTurnWithContext = () => ({
+      context: { messages: [...agent.state.messages], tools: [...agent.state.tools] },
+      model: agent.state.model, thinkingLevel: agent.state.thinkingLevel,
+    });
+    this.shortcutHandlers = new Map([...runner.getShortcuts({})].filter(([key]) => {
+      const parts = key.toLowerCase().split('+');
+      return (parts.some((part) => ['ctrl', 'alt', 'meta'].includes(part)) || /^f\d+$/.test(key)) &&
+        !parts.some((part) => ['enter', 'escape'].includes(part)) &&
+        !(parts.some((part) => ['ctrl', 'meta'].includes(part)) && ['n', 'k', ','].includes(parts[parts.length - 1]));
+    }));
     for (const ext of loaded.extensions) {
       const unsupportedEvents = [...ext.handlers.keys()].filter((name) => ![
         'session_start', 'session_shutdown', 'input', 'before_agent_start', 'context', 'context_with_system',
-        'agent_start', 'agent_end', 'turn_start', 'message_start', 'message_update', 'message_end',
+        'agent_start', 'agent_end', 'agent_settled', 'agent_before_settle', 'turn_start', 'turn_end', 'message_start', 'message_update', 'message_end',
         'tool_call', 'tool_result', 'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
         'before_provider_request', 'resources_discover', 'mcp_servers_change',
+        'model_select', 'thinking_level_select', 'session_before_fork',
+        // 可选监听器在对应操作发生时才运行；注册本身不要求客户端具备该操作入口。
+        'session_tree', 'session_before_tree', 'session_before_switch',
+        'session_before_compact', 'session_compact', 'session_compact_failed',
       ].includes(name));
       if (unsupportedEvents.length) report(`扩展 ${ext.path} 的事件尚不支持：${unsupportedEvents.join('、')}`);
-      if (ext.shortcuts.size) report(`扩展 ${ext.path} 的终端快捷键尚不支持`);
     }
+  }
+
+  recordMessage(message: AgentMessage, id: string): void { this.messageIds.set(message, id); }
+
+  private applyDrafts(manager: SessionManager, drafts: SessionBoundaryDraft[]): void {
+    for (const draft of drafts) {
+      switch (draft.type) {
+        case 'custom': manager.appendCustomEntry(draft.customType, draft.data); break;
+        case 'custom_message': manager.appendCustomMessageEntry(draft.customType, draft.content, draft.display, draft.details); break;
+        case 'context_edit': manager.appendContextEdit(draft.targetId, draft.replacement); break;
+        case 'compaction':
+          manager.appendCompaction(draft.summary, draft.firstKeptEntryId,
+            manager.buildSessionProjection().messages.reduce((sum, message) => sum + estimateTokens(message), 0),
+            draft.details, true, draft.usage);
+          break;
+        default: throw new Error('无效的扩展边界条目');
+      }
+    }
+  }
+
+  private previewBoundary(drafts: SessionBoundaryDraft[]): BoundaryContextPreview {
+    const header = this.manager.getHeader();
+    if (!header) throw new Error('会话头不存在');
+    const preview = SessionManager.inMemory(this.manager.getCwd(), undefined, [header, ...this.manager.getBranch()]);
+    this.applyDrafts(preview, drafts);
+    const projection = preview.buildSessionProjection();
+    const llmMessages = convertToLlm(projection.messages);
+    const pendingMessages = [...this.agent.peekQueuedMessages(), ...this.pendingMessages];
+    return {
+      contextEntries: projection.entries, contextMessages: projection.messages, llmMessages, pendingMessages,
+      canContinue: pendingMessages.length > 0 ||
+        (llmMessages.some((message) => message.role !== 'system') && llmMessages.at(-1)?.role !== 'assistant'),
+    };
+  }
+
+  private commitBoundary(drafts: SessionBoundaryDraft[]): void {
+    if (!drafts.length) return;
+    this.applyDrafts(this.manager, drafts);
+    const system = getCurrentSystemMessage(this.agent.state.messages);
+    const projection = this.manager.buildSessionProjection();
+    this.agent.state.messages = system && projection.messages[0]?.role !== 'system'
+      ? [system, ...projection.messages] : projection.messages;
+  }
+
+  get shortcuts(): { key: string; description: string }[] {
+    return [...this.shortcutHandlers].map(([key, shortcut]) => ({ key, description: shortcut.description ?? key }));
+  }
+
+  async shortcut(key: string): Promise<void> {
+    if (this.closed) throw new Error('会话已关闭');
+    const shortcut = this.shortcutHandlers.get(key);
+    if (!shortcut) throw new Error('扩展快捷键不存在或已被客户端保留');
+    if (this.shortcutSignal.signal.aborted) this.shortcutSignal = new AbortController();
+    await shortcut.handler(this.runner.createContext());
+  }
+
+  async beforeFork(entryId: string): Promise<void> {
+    const result = await this.runner.emit({ type: 'session_before_fork', entryId, position: 'at' });
+    if (result?.cancel) throw new Error('扩展已取消创建分支');
   }
 
   private promptOptions(): BuildSystemPromptOptions {
@@ -196,12 +307,16 @@ export class ClientExtensions {
     this.turnIndex = 0;
     this.ending = false;
   }
-  finish(): void {
+  async finish(ran = false): Promise<void> {
+    const last = this.agent.state.messages.at(-1);
+    const aborted = !!this.controller?.signal.aborted ||
+      (last?.role === 'assistant' && last.stopReason === 'aborted');
     if (this.controller?.signal.aborted) this.agent.clearAllQueues();
     this.controller = undefined;
     this.pendingMessages = [];
+    if (ran) await this.runner.emit({ type: 'agent_settled', aborted });
   }
-  abort(): void { this.controller?.abort(); this.agent.abort(); }
+  abort(): void { this.controller?.abort(); this.shortcutSignal.abort(); this.agent.abort(); }
 
   async prepare(text: string, images: ImageContent[]): Promise<AgentMessage[] | undefined> {
     const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(text);

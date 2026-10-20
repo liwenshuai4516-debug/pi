@@ -51,6 +51,7 @@ export interface SessionView {
   running: boolean;
   error: string | null;
   warning: string | null;
+  shortcuts: { key: string; description: string }[];
   templates: { name: string; description: string }[];
 }
 export interface ImageAttachment {
@@ -85,6 +86,7 @@ export interface AgentClientApi {
   forkSession(id: string): Promise<string>;
   send(id: string, text: string, images: ImageAttachment[], files: FileAttachment[]): Promise<void>;
   stop(id: string): Promise<void>;
+  shortcut(id: string, key: string): Promise<void>;
   setModel(id: string, provider: string, modelId: string): Promise<SessionView>;
   setPermission(id: string, permission: WorkspacePermission): Promise<SessionView>;
   setThinking(id: string, thinking: ThinkingLevel): Promise<SessionView>;

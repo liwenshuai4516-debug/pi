@@ -39,6 +39,7 @@ type Entry = {
   hasModel: boolean;
   busy: boolean;
   completion?: Promise<void>;
+  shortcutTasks: Set<Promise<void>>;
   error: string | null;
   warning: string | null;
   live?: AgentMessage;
@@ -182,6 +183,7 @@ export class AgentHost {
         leaf = manager.getLeafId();
       if (!source || !leaf || !manager.buildSessionContext().messages.length)
         throw new Error('暂无已保存的消息，请先发送任务再创建分支');
+      await this.entries.get(id)?.extensions?.beforeFork(leaf);
       // createBranchedSession 会切换调用者的文件；必须用独立管理器，不能改动源 Agent。
       // 同步捕获叶节点并复制，只包含已完成消息，不携带仍在流式生成的内容。
       const copy = SessionManager.open(source);
@@ -199,6 +201,7 @@ export class AgentHost {
         await entry.agent.waitForIdle();
         // 等待 send 的持久化、列表刷新和 finally 全部收尾，再删除文件，防止历史被重新写回。
         await entry.completion;
+        await Promise.allSettled(entry.shortcutTasks);
       }
       const path = manager.getSessionFile();
       await entry?.extensions?.close();
@@ -318,6 +321,7 @@ export class AgentHost {
       permission,
       hasModel: !!model,
       busy: false,
+      shortcutTasks: new Set(),
       error: null,
       warning:
         process.platform === 'darwin'
@@ -353,6 +357,9 @@ export class AgentHost {
       if (selected) agent.state.model = selected;
       entry.hasModel = !!selected;
       await entry.extensions.start(context.messages.length ? 'resume' : 'new');
+      if (entry.hasModel) await entry.extensions.runner.emit({
+        type: 'model_select', model: agent.state.model, previousModel: undefined, source: 'restore',
+      });
       if (
         entry.hasModel &&
         (context.model?.provider !== agent.state.model.provider ||
@@ -400,6 +407,7 @@ export class AgentHost {
       running: entry.busy || agent.state.isStreaming,
       error: entry.error,
       warning: entry.warning,
+      shortcuts: entry.extensions?.shortcuts ?? [],
       templates: entry.resources
         .getPrompts()
         .prompts.map(({ name, description }) => ({ name, description })),
@@ -418,11 +426,14 @@ export class AgentHost {
         event.message.role === 'toolResult' ||
         event.message.role === 'system'
       ) {
-        entry.manager.appendMessage(event.message);
-      } else if (event.message.role === 'custom')
-        entry.manager.appendCustomMessageEntry(
+        const messageId = entry.manager.appendMessage(event.message);
+        entry.extensions?.recordMessage(event.message, messageId);
+      } else if (event.message.role === 'custom') {
+        const messageId = entry.manager.appendCustomMessageEntry(
           event.message.customType, event.message.content, event.message.display, event.message.details,
         );
+        entry.extensions?.recordMessage(event.message, messageId);
+      }
       if (event.message.role === 'assistant' && event.message.errorMessage)
         entry.error = event.message.errorMessage;
     }
@@ -468,6 +479,7 @@ export class AgentHost {
     entry.completion = new Promise<void>((resolve) => {
       finish = resolve;
     });
+    let ran = false;
     try {
       if (!entry.manager.getSessionName())
         entry.manager.appendSessionInfo(text.trim().slice(0, 48) || '附件任务');
@@ -481,13 +493,14 @@ export class AgentHost {
       );
       if (prepared) {
         if (!entry.hasModel) throw new Error('请先配置并选择模型');
+        ran = true;
         await entry.agent.prompt(prepared);
       }
     } catch (error) {
       entry.error = error instanceof Error ? error.message : '任务执行失败';
       throw error;
     } finally {
-      entry.extensions!.finish();
+      await entry.extensions!.finish(ran);
       entry.busy = false;
       entry.live = undefined;
       try {
@@ -503,6 +516,22 @@ export class AgentHost {
     entry.extensions!.abort();
     await entry.agent.waitForIdle();
     await entry.completion;
+    await Promise.allSettled(entry.shortcutTasks);
+  }
+  async shortcut(id: string, key: string): Promise<void> {
+    this.assertAvailable(id);
+    const entry = this.get(id);
+    const task = entry.extensions!.shortcut(key);
+    entry.shortcutTasks.add(task);
+    try { await task; }
+    catch (error) {
+      entry.error = error instanceof Error ? error.message : '扩展快捷键执行失败';
+      throw error;
+    } finally {
+      entry.shortcutTasks.delete(task);
+      this.emit(id);
+      await this.publishList();
+    }
   }
   async setModel(id: string, provider: string, modelId: string): Promise<SessionView> {
     this.assertAvailable(id);
@@ -515,6 +544,7 @@ export class AgentHost {
     if (entry.busy) throw new Error('任务运行时不能切换模型');
     const model = runtime.getModel(provider, modelId);
     if (!model) throw new Error('模型不存在，请刷新模型配置');
+    const previousModel = entry.agent.state.model;
     entry.agent.state.model = model;
     entry.hasModel = true;
     entry.manager.appendModelChange(provider, modelId);
@@ -523,6 +553,7 @@ export class AgentHost {
       entry.manager.appendThinkingLevelChange('off');
     }
     entry.error = null;
+    await entry.extensions!.runner.emit({ type: 'model_select', model, previousModel, source: 'set' });
     this.emit(id);
     return this.view(id);
   }
@@ -566,6 +597,7 @@ export class AgentHost {
         entry.extensions?.abort();
         await entry.agent.waitForIdle();
         await entry.completion;
+        await Promise.allSettled(entry.shortcutTasks);
         await entry.extensions?.close();
         entry.unsubscribe();
         if (entry.timer) clearTimeout(entry.timer);

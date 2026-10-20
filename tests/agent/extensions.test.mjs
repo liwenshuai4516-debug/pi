@@ -152,3 +152,70 @@ test('Pi extension nested calls retain built-in read-only permissions', async (t
   assert.ok(JSON.stringify(fixture.state.toolResults).includes('NESTED_ERROR=false'));
   assert.equal(await readFile(join(fixture.project, 'nested.txt'), 'utf8'), 'NESTED_WRITE');
 });
+
+test('extension optional lifecycle listeners do not warn; turn boundaries and settled report real state', async (t) => {
+  const { fixture, host } = await setup(t);
+  await writeFile(join(fixture.agentDir, 'extensions', 'lifecycle.ts'), `
+    export default (pi) => {
+      for (const name of ['session_tree', 'session_before_switch', 'session_compact', 'session_before_compact'])
+        pi.on(name, () => pi.appendEntry('unexpected-event', { name }));
+      pi.on('turn_end', (event) => {
+        if (!event.messageEntryId || !event.context.contextEntries.length) throw new Error('MISSING_BOUNDARY_CONTEXT');
+        pi.appendEntry('qa-turn', { turn: event.turnIndex, messageId: event.messageEntryId });
+      });
+      pi.on('agent_settled', (event, ctx) => pi.appendEntry('qa-settled', { idle: ctx.isIdle(), aborted: event.aborted }));
+      pi.on('model_select', (event) => pi.appendEntry('qa-model', { id: event.model.id, source: event.source }));
+      pi.registerShortcut('ctrl+shift+s', { description: 'QA shortcut', handler: ctx => pi.appendEntry('qa-shortcut', { text: ctx.ui.theme.fg('accent', 'QA') }) });
+    }
+  `);
+  const view = await host.create(fixture.project, true);
+  assert.equal(view.warning, null);
+  await host.send(view.id, 'EXTENSION_TOOL', [], []);
+  const entries = host.entries.get(view.id).manager.getEntries();
+  assert.equal(entries.filter((item) => item.customType === 'qa-turn').length, 2);
+  assert.deepEqual(entries.find((item) => item.customType === 'qa-settled').data, { idle: true, aborted: false });
+  assert.ok(!entries.some((item) => item.customType === 'unexpected-event'));
+  assert.ok(!host.view(view.id).warning?.includes('MISSING_BOUNDARY_CONTEXT'));
+  await host.setModel(view.id, 'test-provider', 'fixture-agent');
+  assert.ok(host.entries.get(view.id).manager.getEntries().some((item) => item.customType === 'qa-model' && item.data.source === 'set'));
+  assert.ok(host.view(view.id).shortcuts.some((item) => item.key === 'ctrl+shift+s'));
+  await host.shortcut(view.id, 'ctrl+shift+s');
+  assert.ok(host.entries.get(view.id).manager.getEntries().some((item) => item.customType === 'qa-shortcut'));
+  await assert.rejects(host.shortcut(view.id, 'ctrl+unknown'), /快捷键/);
+  const waiting = host.send(view.id, 'WAIT_FOR_STOP', [], []);
+  await until(() => fixture.state.waiting > 0);
+  await host.stop(view.id);
+  await waiting;
+  const settled = host.entries.get(view.id).manager.getEntries().filter((item) => item.customType === 'qa-settled');
+  assert.equal(settled.length, 2);
+  assert.deepEqual(settled[1].data, { idle: true, aborted: true });
+});
+
+test('extension session_before_fork can cancel without creating or changing sessions', async (t) => {
+  const { fixture, host } = await setup(t);
+  await writeFile(join(fixture.agentDir, 'extensions', 'cancel-fork.ts'), `export default pi => pi.on('session_before_fork', () => ({ cancel: true }));`);
+  const view = await host.create(fixture.project, true);
+  await host.send(view.id, 'CONTINUE_SESSION', [], []);
+  const before = await host.list();
+  await assert.rejects(host.fork(view.id), /扩展.*取消/);
+  assert.deepEqual((await host.list()).map((item) => item.id), before.map((item) => item.id));
+});
+
+test('extension boundary drafts use SDK projection and request exactly one continuation', async (t) => {
+  const { fixture, host } = await setup(t);
+  await writeFile(join(fixture.agentDir, 'extensions', 'continue.ts'), `
+    export default pi => {
+      let continued = false;
+      pi.on('turn_end', event => {
+        if (continued) return;
+        continued = true;
+        return { entries: [{ type: 'custom_message', customType: 'qa-next', content: 'BOUNDARY_CONTINUATION', display: true }], continue: true };
+      });
+    }
+  `);
+  const view = await host.create(fixture.project, true);
+  await host.send(view.id, 'CONTINUE_SESSION', [], []);
+  assert.equal(fixture.state.requests, 2);
+  assert.ok(JSON.stringify(fixture.state.payloads[1]).includes('BOUNDARY_CONTINUATION'));
+  assert.ok(host.entries.get(view.id).manager.getEntries().some((item) => item.customType === 'qa-next'));
+});

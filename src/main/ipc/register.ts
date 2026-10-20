@@ -146,6 +146,11 @@ export function registerAgentIpc(
     string(id, '会话 ID', 256);
     await host.stop(id);
   });
+  handle('agent:shortcut', async (id: unknown, key: unknown) => {
+    string(id, '会话 ID', 256);
+    string(key, '快捷键', 100);
+    await host.shortcut(id, key);
+  });
   handle('agent:model', async (id: unknown, provider: unknown, model: unknown) => {
     string(id, '会话 ID', 256);
     string(provider, '提供商', 256);

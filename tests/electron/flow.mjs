@@ -6,10 +6,14 @@ import { setupFixture, until } from '../support/fixture.mjs';
 const fixture = await setupFixture();
 await mkdir(join(fixture.agentDir, 'extensions'));
 await writeFile(join(fixture.agentDir, 'extensions', 'desktop.ts'), `
-import { writeFileSync } from 'node:fs';
-export default (pi) => pi.registerCommand('desktop-extension', {
-  handler: (_, ctx) => writeFileSync(ctx.cwd + '/desktop-extension.txt', 'EXTENSION_EXECUTED'),
-});
+import { writeFileSync, appendFileSync } from 'node:fs';
+export default (pi) => {
+  pi.registerCommand('desktop-extension', {
+    handler: (_, ctx) => writeFileSync(ctx.cwd + '/desktop-extension.txt', 'EXTENSION_EXECUTED'),
+  });
+  pi.registerShortcut('ctrl+shift+s', { handler: ctx => appendFileSync(ctx.cwd + '/desktop-shortcut.txt', 'KEY_EXECUTED') });
+  pi.registerShortcut('ctrl+k', { handler: ctx => writeFileSync(ctx.cwd + '/reserved-key.txt', 'SHOULD_NOT_RUN') });
+};
 `);
 const evidence = resolve(
   process.env.PI_AGENT_EXECUTABLE ? 'evidence/packaged' : 'evidence/electron',
@@ -132,6 +136,21 @@ try {
   await until(async () => (await page.locator('#send').getAttribute('aria-label')) === '发送任务');
   assert.equal(fixture.state.requests, beforeExtension);
   pass('Pi extension loads in Electron main and composer slash command executes without a model request');
+  await page.locator('#prompt').press('Control+Shift+S');
+  await until(async () => {
+    try { return (await readFile(join(fixture.project, 'desktop-shortcut.txt'), 'utf8')) === 'KEY_EXECUTED'; }
+    catch { return false; }
+  });
+  await page.locator('#prompt').evaluate((node) => {
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'S', ctrlKey: true, shiftKey: true, repeat: true, bubbles: true }));
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'S', ctrlKey: true, shiftKey: true, isComposing: true, bubbles: true }));
+  });
+  await page.locator('#prompt').press('Control+k');
+  await page.locator('#session-search').evaluate((node) => { if (document.activeElement !== node) throw new Error('Client shortcut lost focus'); });
+  await assert.rejects(readFile(join(fixture.project, 'reserved-key.txt')), { code: 'ENOENT' });
+  assert.equal(await readFile(join(fixture.project, 'desktop-shortcut.txt'), 'utf8'), 'KEY_EXECUTED');
+  assert.equal(fixture.state.requests, beforeExtension);
+  pass('extension shortcut reaches main; reserved client keys, repeat and IME are protected');
   assert.equal(await page.getByText('只读工具', { exact: true }).count(), 0);
   await page.locator('#permissions summary').click();
   assert.equal(await page.locator('#workspace-permission').inputValue(), 'workspace');

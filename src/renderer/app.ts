@@ -5,6 +5,7 @@ import {
 } from './features/workspace/permissions.js';
 import { renderThinking } from './features/models/thinking.js';
 import { bindComposerKeyboard } from './features/composer/keyboard.js';
+import { bindExtensionShortcuts } from './features/composer/extension-shortcuts.js';
 import { bindModelSettings } from './features/models/settings.js';
 import { renderModelChoices } from './features/models/choices.js';
 import { bindSessionManagement } from './features/sessions/management.js';
@@ -346,6 +347,10 @@ document.addEventListener('keydown', (event) => {
     for (const detail of document.querySelectorAll<HTMLDetailsElement>('.popover[open]'))
       detail.open = false;
 });
+bindExtensionShortcuts(
+  () => navigating || configuring ? null : active,
+  (id, key) => { void run(() => api.shortcut(id, key)); },
+);
 api.onSession((view) => {
   if (view.id === active?.id) {
     active = view;
