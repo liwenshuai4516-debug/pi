@@ -167,3 +167,18 @@
   .plugin-footer { padding: 12px 16px; flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { .resource-switch > span { transition: none; } }
+.plugin-nav .plugin-tab-title { color: var(--text); font-size: 12px; }
+.plugin-tab-title small { display: block; color: var(--muted); font-size: 10px; margin-top: 3px; }
+.mcp-heading, .mcp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mcp-heading { justify-content: space-between; }
+.mcp-actions { margin: 12px 0; }
+.mcp-actions button { font-size: 12px; padding: 7px 10px; }
+.mcp-exposure { display: flex; flex-direction: row; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+.mcp-exposure select { max-width: 100%; border: 1px solid var(--border); background: var(--bg); padding: 7px; border-radius: 6px; }
+.mcp-tool { padding: 8px 0; border-top: 1px solid var(--border); }
+.resource-state[data-state='connected'] { color: #356044; background: #e3ece2; }
+.resource-state[data-state='needs-auth'], .resource-state[data-state='failed'] { color: var(--accent); }
+#mcp-form { padding: 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+#mcp-form input, #mcp-form textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); margin-bottom: 12px; }
+#mcp-form textarea { resize: vertical; font: 12px ui-monospace, monospace; }
+#mcp-notice { white-space: pre-wrap; }

@@ -9,7 +9,7 @@
 - 用户扩展：`~/.pi/agent/extensions/*.ts` 或 `*.js`。
 - 项目扩展：`<项目>/.pi/extensions/*.ts` 或 `*.js`，仅在项目信任允许时加载。
 - 多文件扩展：以上目录中的子目录，入口为 `index.ts` 或 `index.js`。
-- 额外路径和 Pi 包：沿用 Pi 的 `settings.json` 中 `extensions`、`packages` 配置；可在左栏「插件与 Skill」安装。
+- 额外路径和 Pi 包：沿用 Pi 的 `settings.json` 中 `extensions`、`packages` 配置；可在左栏「扩展能力」安装。
 
 设置 `PI_CODING_AGENT_DIR` 时，用户扩展目录相应改为该目录下的 `extensions/`。TypeScript 由 SDK 加载，无需单独编译。
 
@@ -17,15 +17,23 @@
 
 ## 桌面安装与 Skill 调用
 
-1. 左侧打开「插件与 Skill」，类型选「Pi 资源包」，输入如 `npm:pi-web-access`、Pi 支持的 Git 来源或本地资源包目录；本地包可用「选择目录」。资源包应符合 Pi 的 `package.json.pi` 声明或 `extensions/`、`skills/` 等目录规则。
+1. 左侧打开「扩展能力」，类型选「Pi 资源包」，输入如 `npm:pi-web-access`、Pi 支持的 Git 来源或本地资源包目录；本地包可用「选择目录」。资源包应符合 Pi 的 `package.json.pi` 声明或 `extensions/`、`skills/` 等目录规则。
 2. 独立本地 Skill 选择「本地 Skill」，选包含 `SKILL.md` 的目录。正文、frontmatter 与诊断交给 SDK 验证，配置引用原目录，不复制文件。
 3. 点击安装，等待成功或错误提示；安装中不能再次提交，Agent 执行期间拒绝安装。
 4. 点击「新建对话并加载」，再打开菜单查看「当前会话已加载」。资源加载错误仍显示在对话提示中；已安装不等于所有第三方能力都已可用。
 5. Skill 的描述进入模型上下文，模型可通过 read 工具读取正文及附带文件；发送 `/skill:名称 任务` 可显式展开 Skill，遵守 Pi 的 `enableSkillCommands` 配置。聊天中显示 Skill 名称和任务，完整展开内容仅进入实际模型上下文与历史。
 
-插件管理弹窗按「插件 / 技能」分类展示用户级资源，可切换启用状态。设置写入 Pi `settings.json`，对新建对话生效；已经运行的对话保留创建时加载的资源快照。
+扩展管理按当前锁定 Pi SDK 1.2.0 的 `docs/packages.md`、`docs/skills.md`、`docs/mcp.md` 区分：
 
-全局资源配置使用 Pi settings.json 的 `packages` 和 `skills`，不写入项目配置。本地引用请保留源目录；npm/Git 依赖系统相应命令与网络，缺失时明确报错。当前菜单不提供卸载、升级或 MCP 管理。
+| 分类 | 含义与管理 |
+|---|---|
+| Packages · 资源包 | npm/Git/本地分发容器，可包含扩展、技能、模板和主题；支持安装、更新、移除。扩展代码列表与开关在此分类下，数量不计作资源包数量。 |
+| Skills · 技能 | `SKILL.md` 定义任务方法；显示来源、路径、描述与 `/skill:名称`，支持独立导入、启停。 |
+| MCP Servers · MCP 服务器 | 外部工具连接；展示当前对话实际状态、来源及工具，支持添加、启停、登录/退出、重连、工具使用方式及移除文件配置。 |
+
+资源包和技能设置写入 Pi `settings.json`，对新建对话生效；已经运行的对话保留创建时加载的资源快照。
+
+全局资源配置使用 Pi settings.json 的 `packages` 和 `skills`，不写入项目配置。本地引用请保留源目录；npm/Git 依赖系统相应命令与网络，缺失时明确报错。更新和移除复用 Pi 包管理器；移除本地资源包只取消配置引用，保留本地源文件与独立导入的 Skill。当前已加载会话保留资源快照。
 
 ## 输入框 `/` 候选
 
@@ -36,6 +44,12 @@
 参数候选调用扩展原生 `getArgumentCompletions(prefix)`，兼容异步返回；例如 `/mcp ` 提示子命令，`/mcp reconnect ` 提示实际服务。扩展没有提供参数补全时正常输入，不列出虚构选项。异步结果在输入、光标或会话改变后失效，扩展返回内容按文本转义展示。服务出现在候选中不代表已连接或授权。
 
 ## MCP 与 Postman
+
+「扩展能力 → MCP 服务器」支持刷新当前会话状态，新增时输入服务名称与服务商提供的单个服务 JSON，例如 `{"url":"https://example.com/mcp"}` 或 `{"command":"npx","args":["-y","包名"]}`；写入用户级 `mcp.json`。配置校验由 Pi 完成，不回显已保存的 URL、请求头、环境变量或凭据。
+
+来源标明用户配置、受信任项目配置或扩展注册；文件服务的启停和工具使用方式写入对应配置，并仅重新加载当前对话的原生 MCP 连接，其他已打开对话不会自动重载。扩展注册服务的更改仅限当前对话；要持久控制其来源，在 Packages 管理对应扩展后新建对话。该服务不能在 MCP 页单独删除。
+
+工具使用方式沿用 Pi 的 `codemode`（默认按需调用）、`deferred`（搜索后调用）、`direct`（直接提供）和 `hidden`（不可调用）。服务提供的工具数量和当前可调用工具分别展示；关闭、隐藏或移除后不再向模型提供相应工具。用户主动关闭/替换原生 MCP 时，界面明确显示不可用，不冒充连接成功。登录按钮打开浏览器，授权由用户完成；等待期间可取消操作。连接失败/需要登录与已连接分别显示。
 
 客户端显式加载 Pi 原生 MCP、codemode、tool-search 扩展，接手 `registerMcpServer()` 注册的服务，支持 HTTP/stdio、工具发现、动态注册与原生 exposure 规则。无需再安装另一个 MCP 桥接插件。全局配置为 `<agentDir>/mcp.json`；项目信任后才加载 `<项目>/.pi/mcp.json`。
 
@@ -113,7 +127,6 @@ export default function (pi: ExtensionAPI) {
 - 独立压缩、树导航、通过扩展创建/切换/分支会话和热重载。这些扩展操作仍明确报不支持；注册对应的可选监听器不视为运行失败。
 - 空闲时由扩展定时器或外部事件主动启动任务，以及在 `agent_end` 中安排下一轮任务。
 - 全套工具负载编排（如 `prepareLoadout`）、虚拟模型路由及完整供应商事件链。
-- MCP 图形管理窗口；当前通过上述 `/mcp` 命令管理连接与登录。
 
 ## 信任与权限
 
@@ -124,3 +137,5 @@ Pi 扩展是主进程内执行的代码，具有当前系统账号权限，可�
 ## 验证范围
 
 `tests/agent/extensions.test.mjs` 使用临时配置和真实 SDK 验证发现、命令、模型调用工具、提示词与输入钩子、拦截、权限切换后工具保留、错误可见、信任、取消、关闭与恢复，以及轮次投影、续跑、停止后的 settled 状态、模型事件和分支取消。`tests/electron/flow.mjs` 验证真实桌面输入框能执行扩展命令和快捷键，并保护客户端保留键、输入法和长按。`tests/plugins/install.test.mjs` 与 Electron 流程实际安装本地 Pi 包和 Skill，验证新会话加载、模型工具调用写文件、Skill 提示注入与显式调用、读取附带文件、只读边界及重启恢复。受控模型协议服务不证明所有第三方扩展、npm/Git 网络来源、外部模型账号或 Postman 账号授权后的业务 API 已验证。`tests/agent/mcp.test.mjs` 使用真实本地 MCP 协议服务验证扩展注册、直接/codemode/混合曝光的实际工具执行和状态查询。
+
+MCP 图形管理验证：`tests/agent/mcp-management.test.mjs` 覆盖真实原生连接与工具执行、启停/曝光/移除、配置保存及凭据不回显、扩展注册的会话范围和内置连接器禁用。Electron 流程覆盖三类入口、MCP 全流程和资源包更新/移除；使用隔离的本地协议服务，不代表真实 Postman 账号已授权。

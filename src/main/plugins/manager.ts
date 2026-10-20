@@ -24,7 +24,7 @@ export class PluginManager {
       packages: packages.listConfiguredPackages().map((item) => ({ source: item.source, installed: !!item.installedPath })),
       extensions: paths.extensions.map((item) => ({ name: basename(item.path), path: item.path, enabled: item.enabled, source: item.metadata.source })),
       skills: loaded.flatMap(({ resource, result }) => result.skills.map((item) => ({
-        name: item.name, description: item.description, path: item.filePath, enabled: resource.enabled,
+        name: item.name, description: item.description, path: item.filePath, enabled: resource.enabled, source: resource.metadata.source,
       }))),
       diagnostics: loaded.flatMap(({ result }) => result.diagnostics.map((item) => item.message)),
     };
@@ -83,5 +83,18 @@ export class PluginManager {
     } finally {
       this.installing = false;
     }
+  }
+  async packageAction(source: string, action: 'update' | 'remove'): Promise<PluginInventory> {
+    const { settings } = this.context();
+    // 清单中的本地来源相对用户配置目录；Pi 管理命令的输入则相对 cwd 解析。
+    const packages = new DefaultPackageManager({ cwd: this.agentDir, agentDir: this.agentDir, settingsManager: settings });
+    if (!packages.listConfiguredPackages().some((item) => item.source === source && item.scope === 'user')) throw new Error('未找到用户级资源包');
+    if (action === 'remove') {
+      if (!await packages.removeAndPersist(source)) throw new Error('资源包配置未移除，请刷新后重试');
+    }
+    else if (action === 'update') await packages.update(source);
+    else throw new Error('资源包操作无效');
+    await settings.flush();
+    return this.list();
   }
 }

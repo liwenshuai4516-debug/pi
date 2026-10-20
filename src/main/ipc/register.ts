@@ -15,6 +15,7 @@ import type {
   FileAttachment,
   ModelConfigInput,
   ThinkingLevel,
+  McpAction,
 } from '../../shared/types.js';
 
 /** 所有能力只经声明通道开放；来源、参数和所选路径在主进程统一检查。 */
@@ -91,6 +92,33 @@ export function registerAgentIpc(
   });
   const plugins = () => new PluginManager(host.agentDir, join(app.getPath('userData'), 'workspace'));
   let installingPlugin = false;
+  async function resourceChange<T>(action: () => Promise<T>): Promise<T> {
+    if (host.active || installingPlugin) throw new Error('请等待当前任务或配置更新结束');
+    installingPlugin = true;
+    try { return await action(); } finally { installingPlugin = false; }
+  }
+  handle('agent:package-action', (source: unknown, action: unknown) => {
+    string(source, '资源包来源', 2000);
+    if (action !== 'update' && action !== 'remove') throw new Error('资源包操作无效');
+    return resourceChange(() => plugins().packageAction(source, action));
+  });
+  handle('agent:mcp-list', (id: unknown) => {
+    string(id, '会话 ID', 256);
+    return host.listMcp(id);
+  });
+  handle('agent:mcp-action', (id: unknown, name: unknown, action: unknown) => {
+    string(id, '会话 ID', 256);
+    string(name, '服务名称', 128);
+    if (!/^[a-zA-Z0-9_-]+$/.test(name) || !['login', 'logout', 'reconnect', 'enable', 'disable', 'remove', 'codemode', 'deferred', 'direct', 'hidden'].includes(action as string)) throw new Error('MCP 操作无效');
+    return resourceChange(() => host.manageMcp(id, name, action as McpAction));
+  });
+  handle('agent:mcp-add', (id: unknown, name: unknown, config: unknown) => {
+    string(id, '会话 ID', 256);
+    string(name, '服务名称', 128);
+    string(config, '服务配置', 32000);
+    if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('服务名称只能包含字母、数字、下划线和连字符');
+    return resourceChange(() => host.addMcp(id, name, config));
+  });
   handle('agent:plugins', () => plugins().list());
   handle('agent:plugin-enabled', async (path: unknown, kind: unknown, enabled: unknown) => {
     string(path, '资源路径', 4000);

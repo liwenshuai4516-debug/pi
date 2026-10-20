@@ -4,6 +4,8 @@ import { join, resolve } from 'node:path';
 import { _electron as electron } from 'playwright';
 import { createInstallFixture } from '../support/install-fixture.mjs';
 import { setupFixture, until } from '../support/fixture.mjs';
+import { createMcpFixture } from '../support/mcp-fixture.mjs';
+const mcpFixture = await createMcpFixture();
 const fixture = await setupFixture();
 const installFixture = await createInstallFixture(fixture);
 await mkdir(join(fixture.agentDir, 'extensions'));
@@ -688,6 +690,66 @@ try {
   await finalPage.locator('#close-plugins').click();
   assert.deepEqual(report.pageErrors, []);
   pass('UI-imported Skill is loaded, advertised in model context, and slash invocation sends real Skill contents');
+  await until(async () => (await finalPage.locator('#send').getAttribute('aria-label')) === '发送任务');
+  await finalPage.locator('#plugins-button').click();
+  await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
+  for (const [id, name] of [['plugins-tab', 'Packages'], ['skills-tab', 'Skills'], ['mcp-tab', 'MCP Servers']]) {
+    assert.match(await finalPage.locator(`#${id}`).innerText(), new RegExp(name));
+  }
+  await finalPage.locator('#mcp-tab').click();
+  await finalPage.locator('#mcp-servers').getByText('当前对话没有 MCP 服务。可添加服务，或启用注册 MCP 的资源包后新建对话。').waitFor();
+  const requestsBeforeMcp = fixture.state.requests;
+  await finalPage.locator('#mcp-add summary').click();
+  await finalPage.locator('#mcp-name').fill('postman');
+  await finalPage.locator('#mcp-config').fill(JSON.stringify({url: mcpFixture.url, exposure: 'direct', headers: {Authorization: 'Bearer UI_SECRET'}}));
+  await finalPage.locator('#mcp-form button').click();
+  await finalPage.locator('#mcp-servers [data-state=connected]').waitFor();
+  assert.equal(await finalPage.locator('#mcp-config').inputValue(), '');
+  assert.ok(!(await finalPage.locator('body').innerText()).includes('UI_SECRET'));
+  await finalPage.locator('#mcp-servers details summary').click();
+  await finalPage.locator('#mcp-servers .mcp-tool').filter({hasText: 'mcp__postman__echo'}).waitFor();
+  await finalPage.screenshot({path: join(evidence, 'mcp-servers.png')});
+  await finalPage.setViewportSize({width: 900, height: 760});
+  assert.equal(await finalPage.locator('#plugins-dialog').evaluate(node => node.scrollWidth > node.clientWidth), false);
+  await finalPage.screenshot({path: join(evidence, 'mcp-servers-900.png')});
+  await finalPage.locator('[data-mcp-action=disable]').click();
+  await finalPage.locator('#mcp-servers [data-state=disabled]').waitFor();
+  assert.equal(await finalPage.locator('#mcp-servers .mcp-tool').count(), 0);
+  await finalPage.locator('[data-mcp-action=enable]').click();
+  await finalPage.locator('#mcp-servers [data-state=connected]').waitFor();
+  await finalPage.locator('[data-mcp-exposure]').selectOption('hidden');
+  await until(async () => (await finalPage.locator('[data-mcp-exposure]').inputValue()) === 'hidden' && !(await finalPage.locator('#close-plugins').isDisabled()));
+  assert.equal(await finalPage.locator('#mcp-servers .mcp-tool').count(), 0);
+  await finalPage.locator('[data-mcp-exposure]').selectOption('direct');
+  await finalPage.locator('#mcp-servers .mcp-tool').waitFor();
+  await until(async () => !(await finalPage.locator('#close-plugins').isDisabled()));
+  assert.equal(fixture.state.requests, requestsBeforeMcp);
+  await finalPage.locator('#close-plugins').click();
+  await finalPage.locator('#prompt').fill('MCP_DIRECT_PROOF');
+  await finalPage.locator('#prompt').press('Enter');
+  await until(async () => mcpFixture.calls > 0 && (await finalPage.locator('#send').getAttribute('aria-label')) === '发送任务');
+  await finalPage.locator('#plugins-button').click();
+  await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
+  await finalPage.locator('#mcp-tab').click();
+  await finalPage.locator('[data-mcp-action=reconnect]').click();
+  await finalPage.locator('#mcp-servers [data-state=connected]').waitFor();
+  await until(async () => !(await finalPage.locator('#close-plugins').isDisabled()));
+  await finalPage.locator('[data-mcp-action=remove]').click();
+  await finalPage.locator('[data-mcp-action=remove]').click();
+  await finalPage.locator('#mcp-servers').getByText('当前对话没有 MCP 服务。可添加服务，或启用注册 MCP 的资源包后新建对话。').waitFor();
+  pass('three resource categories; native MCP add/connect/disable/enable/exposure/reconnect/remove work without model requests; Agent calls real MCP tool');
+  await finalPage.locator('#plugins-tab').click();
+  await finalPage.locator('[data-package-action=update]').click();
+  await until(async () => !(await finalPage.locator('#close-plugins').isDisabled()));
+  await finalPage.locator('[data-package-action=remove]').click();
+  await finalPage.locator('[data-package-action=remove]').click();
+  await until(async () => (await finalPage.locator('#plugins-count').innerText()) === '0');
+  assert.match(await readFile(join(installFixture.packageDir, 'package.json'), 'utf8'), /desktop-install-proof/);
+  await finalPage.locator('#skills-tab').click();
+  await finalPage.locator('#plugin-skills').getByText('installed-skill', {exact:true}).waitFor();
+  pass('package UI update/remove preserves local sources and independently imported Skills');
+  assert.deepEqual(report.pageErrors, []);
+
 
 } catch (error) {
   report.failure = error.stack;
@@ -707,6 +769,7 @@ try {
       .catch(() => {});
     await app.close().catch(() => {});
   }
+  await mcpFixture.close();
   fixture.close();
   report.providerRequests = fixture.state.requests;
   await writeFile(join(evidence, 'result.json'), JSON.stringify(report, null, 2));

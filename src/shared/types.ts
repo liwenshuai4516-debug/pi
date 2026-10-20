@@ -41,9 +41,24 @@ export interface ToolProgress {
 export interface PluginInventory {
   packages: { source: string; installed: boolean }[];
   extensions: { name: string; path: string; enabled: boolean; source: string }[];
-  skills: { name: string; description: string; path: string; enabled: boolean }[];
+  skills: { name: string; description: string; path: string; enabled: boolean; source: string }[];
   diagnostics: string[];
 }
+export type McpExposure = 'codemode' | 'deferred' | 'direct' | 'hidden';
+export interface McpServerView {
+  name: string;
+  source: string;
+  scope: 'global' | 'project' | 'extension';
+  transport: 'http' | 'stdio';
+  enabled: boolean;
+  exposure: McpExposure;
+  state: string;
+  toolCount: number;
+  tools: { name: string; description: string }[];
+  canLogin: boolean;
+}
+export interface McpInventory { available: boolean; servers: McpServerView[]; diagnostics: string[]; }
+export type McpAction = 'login' | 'logout' | 'reconnect' | 'enable' | 'disable' | 'remove' | McpExposure;
 export interface SessionView {
   skills: { name: string; description: string; path: string }[];
   extensions: string[];
@@ -94,6 +109,10 @@ export interface InitialState {
 export interface AgentClientApi {
   initialize(): Promise<InitialState>;
   listPlugins(): Promise<PluginInventory>;
+  packageAction(source: string, action: 'update' | 'remove'): Promise<PluginInventory>;
+  listMcp(id: string): Promise<McpInventory>;
+  manageMcp(id: string, name: string, action: McpAction): Promise<McpInventory>;
+  addMcp(id: string, name: string, config: string): Promise<McpInventory>;
   setPluginEnabled(path: string, kind: 'extension' | 'skill', enabled: boolean): Promise<PluginInventory>;
   installPlugin(source: string, kind: 'package' | 'skill'): Promise<PluginInventory>;
   choosePluginSource(kind: 'package' | 'skill'): Promise<string | null>;

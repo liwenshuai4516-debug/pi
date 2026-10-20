@@ -48,7 +48,7 @@
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
               <path d="M8 3v5H3v8h5v5h8v-5h5V8h-5V3Z" />
             </svg>
-            插件与 Skill
+            扩展能力
           </button>
           <button id="toggle-session-list" class="side-heading" aria-expanded="true" aria-controls="sessions">
             <span>最近会话 <span class="session-chevron" aria-hidden="true">⌄</span></span><span id="session-count">0</span>
@@ -337,26 +337,41 @@
     </dialog>
     <dialog id="plugins-dialog" aria-labelledby="plugins-title">
       <div class="dialog-head">
-        <div><span class="eyebrow">扩展能力</span><h2 id="plugins-title">插件与 Skill</h2></div>
+        <div><span class="eyebrow">扩展能力</span><h2 id="plugins-title">扩展管理</h2></div>
         <button id="close-plugins" class="icon-button" aria-label="关闭插件管理">×</button>
       </div>
       <div class="plugin-layout">
         <nav class="plugin-nav" aria-label="扩展分类">
-          <button id="plugins-tab" type="button" aria-pressed="true" aria-controls="plugins-pane">插件 <span id="plugins-count">0</span></button>
-          <button id="skills-tab" type="button" aria-pressed="false" aria-controls="skills-pane">技能 <span id="skills-count">0</span></button>
-          <p>管理已安装的扩展能力</p>
+          <button id="plugins-tab" type="button" aria-pressed="true" aria-controls="plugins-pane"><span class="plugin-tab-title">资源包<small>Packages</small></span><span id="plugins-count">0</span></button>
+          <button id="skills-tab" type="button" aria-pressed="false" aria-controls="skills-pane"><span class="plugin-tab-title">技能<small>Skills</small></span><span id="skills-count">0</span></button>
+          <button id="mcp-tab" type="button" aria-pressed="false" aria-controls="mcp-pane"><span class="plugin-tab-title">MCP 服务器<small>MCP Servers</small></span><span id="mcp-count">—</span></button>
+          <p>资源包分发能力，技能指导任务，MCP 连接外部工具。</p>
         </nav>
         <div class="plugin-content">
           <section id="plugins-pane" class="resource-section" aria-labelledby="plugins-tab">
-            <h3>插件</h3><p class="plugin-intro">开启所需插件，为对话添加工具与能力。</p>
-            <ul id="plugin-extensions" class="resource-list"></ul>
-            <details class="package-details"><summary>已配置资源包</summary><ul id="plugin-packages" class="resource-list"></ul></details>
+            <h3>资源包 · Packages</h3><p class="plugin-intro">从 npm、Git 或本地安装，可包含扩展代码、技能、提示模板和主题。更新或移除后，新建对话加载。</p>
+            <ul id="plugin-packages" class="resource-list"></ul>
+            <details class="package-details" open><summary>扩展代码 · Extensions</summary><p class="path-note">资源包中的扩展与独立扩展列在这里；开关仅控制该扩展，新建对话后生效。</p><ul id="plugin-extensions" class="resource-list"></ul></details>
           </section>
           <section id="skills-pane" class="resource-section" aria-labelledby="skills-tab" hidden>
-            <h3>技能</h3><p class="plugin-intro">开启技能，让助手在任务中使用对应的工作方法。</p>
+            <h3>技能 · Skills</h3><p class="plugin-intro">以 SKILL.md 定义任务方法，可来自资源包或独立目录；开启后新建对话使用，也可通过 /skill:名称 调用。</p>
             <ul id="plugin-skills" class="resource-list"></ul>
           </section>
-          <details id="plugin-install"><summary>安装插件或技能</summary>
+          <section id="mcp-pane" class="resource-section" aria-labelledby="mcp-tab" hidden>
+            <div class="mcp-heading"><h3>MCP 服务器</h3><button id="refresh-mcp" type="button" class="secondary-button">刷新状态</button></div>
+            <p class="plugin-intro">连接外部工具服务。这里显示当前对话的真实连接与工具；已安装资源包不等于服务已连接。</p>
+            <p id="mcp-notice" class="path-note" role="status"></p>
+            <ul id="mcp-servers" class="resource-list"></ul>
+            <details id="mcp-add"><summary>添加 MCP 服务器</summary>
+              <form id="mcp-form">
+                <label for="mcp-name">服务名称</label><input id="mcp-name" required maxlength="128" pattern="[a-zA-Z0-9_-]+" placeholder="例如 postman" autocomplete="off" />
+                <label for="mcp-config">服务配置</label><textarea id="mcp-config" required rows="5" placeholder='粘贴服务商提供的 JSON，例如 {"url":"https://…/mcp"}；本地服务使用 command、args。'></textarea>
+                <p class="path-note">支持 HTTP 和本地 stdio；保存到用户级 mcp.json。仅添加你信任的服务，凭据不会从已保存配置回显。</p>
+                <button class="primary-button" type="submit">添加并连接</button>
+              </form>
+            </details>
+          </section>
+          <details id="plugin-install"><summary>安装资源包或导入技能</summary>
         <form id="plugin-form">
           <label for="plugin-kind">安装类型</label>
           <select id="plugin-kind">
@@ -380,6 +395,7 @@
       </div>
       <footer class="plugin-footer">
         <p id="plugin-status" role="status"></p>
+        <button id="mcp-cancel" class="secondary-button" type="button" hidden>取消操作</button>
         <button id="activate-plugins" class="primary-button" type="button">新建对话并加载</button>
       </footer>
     </dialog>

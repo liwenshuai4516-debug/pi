@@ -7,6 +7,7 @@ import { listSavedSessions } from '../sessions/catalog.js';
 import { DEFAULT_SYSTEM_PROMPT } from './system-prompt.js';
 import { ClientExtensions } from './extensions.js';
 import { builtinMcpExtensions } from './mcp.js';
+import { McpManager } from './mcp-manager.js';
 import { join } from 'node:path';
 import { stat, unlink } from 'node:fs/promises';
 import {
@@ -29,6 +30,7 @@ import type {
   ThinkingLevel,
   ToolProgress,
   WorkspacePermission,
+  McpAction, McpInventory,
 } from '../../shared/types.js';
 
 type Entry = {
@@ -426,6 +428,39 @@ export class AgentHost {
     const entry = this.get(id);
     if (entry.busy || entry.agent.state.isStreaming) return [];
     return entry.extensions?.complete(prefix) ?? [];
+  }
+  private mcp(id: string): McpManager {
+    const entry = this.get(id);
+    return new McpManager(this.agentDir, entry.resources, entry.extensions!.runner);
+  }
+  async listMcp(id: string): Promise<McpInventory> {
+    this.assertAvailable(id);
+    return this.mcp(id).list();
+  }
+  private async editMcp(id: string, action: (manager: McpManager) => Promise<McpInventory>): Promise<McpInventory> {
+    this.assertAvailable(id);
+    const entry = this.get(id);
+    if (entry.busy || entry.shortcutTasks.size) throw new Error('请等待当前任务结束');
+    entry.busy = true;
+    entry.extensions!.begin();
+    this.emit(id);
+    const task = (async () => {
+      try { return await action(this.mcp(id)); }
+      finally {
+        await entry.extensions!.finish();
+        entry.extensions!.refreshTools();
+        entry.busy = false;
+        this.emit(id);
+      }
+    })();
+    entry.completion = task.then(() => {}, () => {});
+    return task;
+  }
+  manageMcp(id: string, name: string, action: McpAction): Promise<McpInventory> {
+    return this.editMcp(id, manager => manager.action(name, action));
+  }
+  addMcp(id: string, name: string, config: string): Promise<McpInventory> {
+    return this.editMcp(id, manager => manager.add(name, config));
   }
   private handleEvent(id: string, event: AgentEvent): void {
     const entry = this.get(id);

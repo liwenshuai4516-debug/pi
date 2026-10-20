@@ -346,7 +346,8 @@ export class ClientExtensions {
     // MCP 异步连接会陆续注册工具；已启用 codemode 时也要激活新注册的 direct 工具。
     for (const name of defaults) if (!this.defaultActiveTools.has(name)) this.activeTools?.add(name);
     this.defaultActiveTools = defaults;
-    this.agent.state.tools = [...this.tools.values()].filter((tool) => this.activeTools ? this.activeTools.has(tool.name) : !inactive.has(tool.name));
+    const hidden = new Set(registered.filter(({ definition }) => definition.exposure === 'hidden').map(({ definition }) => definition.name));
+    this.agent.state.tools = [...this.tools.values()].filter((tool) => !hidden.has(tool.name) && (this.activeTools ? this.activeTools.has(tool.name) : !inactive.has(tool.name)));
   }
 
   async start(reason: 'new' | 'resume'): Promise<void> {

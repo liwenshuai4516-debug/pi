@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
 import { AgentHost } from '../../dist/main/agent/agent-host.js';
@@ -81,4 +81,28 @@ test('plugin and Skill switches persist native Pi filters and change actual new 
   assert.equal(await readFile(join(fixture.project, 'installed-plugin-proof.txt'), 'utf8'), 'INSTALLED_PLUGIN_EXECUTED');
   await host.send(enabled.id, '/skill:installed-skill SWITCH_REENABLED', [], []);
   assert.match(fixture.state.instructions.at(-1), /SKILL_INSTALL_PROOF/);
+});
+
+test('package update/remove uses Pi management and preserves local source files and independent Skills', async t => {
+  const fixture = await setupFixture();
+  const host = new AgentHost(() => {}, () => {}, fixture.agentDir);
+  t.after(async () => { await host.dispose(); fixture.close(); });
+  const {packageDir, skillDir} = await createInstallFixture(fixture);
+  const cwd = join(fixture.project, 'nested/workspace');
+  await mkdir(cwd, {recursive: true});
+  const manager = new PluginManager(fixture.agentDir, cwd);
+  const installed = await manager.install(packageDir, 'package');
+  const source = installed.packages[0].source;
+  await manager.install(skillDir, 'skill');
+  const loaded = await host.create(fixture.project, true);
+  await assert.rejects(manager.packageAction('/missing', 'remove'), /未找到/);
+  let inventory = await manager.packageAction(source, 'update');
+  assert.equal(inventory.packages.length, 1);
+  inventory = await manager.packageAction(source, 'remove');
+  assert.equal(inventory.packages.length, 0);
+  assert.ok(inventory.skills.some(item => item.name === 'installed-skill'));
+  assert.match(await readFile(join(packageDir, 'package.json'), 'utf8'), /desktop-install-proof/);
+  assert.ok(loaded.extensions.includes(join(packageDir, 'index.ts')));
+  const next = await host.create(fixture.project, true);
+  assert.ok(!next.extensions.includes(join(packageDir, 'index.ts')));
 });
