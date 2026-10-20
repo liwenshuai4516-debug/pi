@@ -105,7 +105,7 @@ export function bindPlugins(getView: () => SessionView | null, activate: () => P
       .then((path) => { if (path) source.value = path; }).catch(showError);
   });
   kind.addEventListener('change', () => {
-    source.placeholder = kind.value === 'skill' ? '包含 SKILL.md 的完整目录路径' : 'npm:包名、Git 地址或本地资源包路径';
+    source.placeholder = kind.value === 'skill' ? '包含 SKILL.md 的完整目录路径' : 'pi install npm:pi-goal-x，或 npm:包名、Git 地址、本地目录';
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();

@@ -17,11 +17,13 @@
 
 ## 桌面安装与 Skill 调用
 
-1. 左侧打开「扩展能力」，类型选「Pi 资源包」，输入如 `npm:pi-web-access`、Pi 支持的 Git 来源或本地资源包目录；本地包可用「选择目录」。资源包应符合 Pi 的 `package.json.pi` 声明或 `extensions/`、`skills/` 等目录规则。
+1. 左侧打开「扩展能力」，类型选「Pi 资源包」，可直接粘贴 `pi install npm:pi-goal-x`，或填写 `npm:pi-web-access`、Pi 支持的 Git 来源或本地资源包目录；本地包可用「选择目录」。资源包应符合 Pi 的 `package.json.pi` 声明或 `extensions/`、`skills/` 等目录规则。
 2. 独立本地 Skill 选择「本地 Skill」，选包含 `SKILL.md` 的目录。正文、frontmatter 与诊断交给 SDK 验证，配置引用原目录，不复制文件。
 3. 点击安装，等待成功或错误提示；安装中不能再次提交，Agent 执行期间拒绝安装。
 4. 点击「新建对话并加载」，再打开菜单查看「当前会话已加载」。资源加载错误仍显示在对话提示中；已安装不等于所有第三方能力都已可用。
 5. Skill 的描述进入模型上下文，模型可通过 read 工具读取正文及附带文件；发送 `/skill:名称 任务` 可显式展开 Skill，遵守 Pi 的 `enableSkillCommands` 配置。聊天中显示 Skill 名称和任务，完整展开内容仅进入实际模型上下文与历史。
+
+安装命令按 `pi install <来源>` 提取一个来源，通过 SDK 包管理器安装到用户级配置，不执行粘贴的终端命令。命令中的本地路径含空格时使用单引号或双引号，例如 `pi install "/完整路径/我的资源包"`。一次安装一个包，不接受额外命令或 `--local` 等命令选项；直接选择本地目录时无需加引号。
 
 扩展管理按当前锁定 Pi SDK 1.2.0 的 `docs/packages.md`、`docs/skills.md`、`docs/mcp.md` 区分：
 

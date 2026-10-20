@@ -5,6 +5,19 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { PluginInventory } from '../../shared/types.js';
 
+/** 只提取单个安装来源交给 SDK，不把用户粘贴的命令交给终端执行。 */
+export function packageInstallSource(input: string): string {
+  const source = input.trim();
+  if (!/^pi(?:\s|$)/.test(source)) return source;
+  const command = /^pi\s+install\s+(?:"([^"]+)"|'([^']+)'|([^\s"']+))$/.exec(source);
+  if (!command) throw new Error('请输入 pi install <来源>，一次安装一个资源包；含空格的路径请用引号包裹');
+  const target = command[1] ?? command[2] ?? command[3];
+  if (!target.trim()) throw new Error('请填写有效的资源包来源');
+  if (target.startsWith('-')) throw new Error('此处安装到用户级配置，请移除 --local、-l 等命令选项');
+  if (command[3] && /[;&|`$<>]/.test(target)) throw new Error('请只填写资源包来源，不要附加其他命令');
+  return target;
+}
+
 /** 全局安装复用 Pi 配置与包协议；资源清单只解析路径，实际加载由会话完成。 */
 export class PluginManager {
   private installing = false;
@@ -76,7 +89,7 @@ export class PluginManager {
           throw new Error(result.diagnostics.map((item) => item.message).join('\n') || '技能格式无效');
         settings.setSkillPaths([...new Set([...settings.getSkillPaths(), path])]);
       } else {
-        await packages.installAndPersist(source);
+        await packages.installAndPersist(packageInstallSource(source));
       }
       await settings.flush();
       return await this.list();

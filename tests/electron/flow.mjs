@@ -612,7 +612,7 @@ try {
   await finalPage.locator('#install-plugin').click();
   await finalPage.locator('#plugin-error').waitFor({ state: 'visible' });
   assert.equal(await finalPage.locator('#plugin-packages').getByText('已安装', { exact: true }).count(), 0);
-  await finalPage.locator('#plugin-source').fill(installFixture.packageDir);
+  await finalPage.locator('#plugin-source').fill(`pi install "${installFixture.packageDir}"`);
   await finalPage.locator('#install-plugin').click();
   await finalPage.locator('#plugin-status').filter({ hasText: '安装完成' }).waitFor();
   await until(async () => (await finalPage.locator('#plugin-extensions li:not(.resource-empty)').count()) >= 2);

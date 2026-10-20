@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { PluginManager } from '../../dist/main/plugins/manager.js';
+import { PluginManager, packageInstallSource } from '../../dist/main/plugins/manager.js';
 import { AgentHost } from '../../dist/main/agent/agent-host.js';
 import { createWorkspaceTools } from '../../dist/main/workspace/permissions.js';
 import { setupFixture } from '../support/fixture.mjs';
@@ -16,7 +16,7 @@ test('installed Pi package and Skill execute through real Agent; skill assets st
   const plugins = new PluginManager(fixture.agentDir, fixture.project);
   await assert.rejects(plugins.install('', 'package'), /有效/);
   await assert.rejects(plugins.install(fixture.project, 'skill'), /ENOENT|SKILL/);
-  await plugins.install(packageDir, 'package');
+  await plugins.install(`pi install "${packageDir}"`, 'package');
   const inventory = await plugins.install(skillDir, 'skill');
   assert.equal(inventory.packages.find((item) => item.source.endsWith('local-pi-package'))?.installed, true);
   assert.ok(inventory.skills.some((item) => item.name === 'installed-skill'));
@@ -105,4 +105,18 @@ test('package update/remove uses Pi management and preserves local source files 
   assert.ok(loaded.extensions.includes(join(packageDir, 'index.ts')));
   const next = await host.create(fixture.project, true);
   assert.ok(!next.extensions.includes(join(packageDir, 'index.ts')));
+});
+
+test('Pi install commands extract one SDK source while preserving raw paths and package versions', () => {
+  for (const source of ['npm:pi-goal-x', 'npm:@scope/plugin@1.2.3', 'git:github.com/example/plugin@v1', './local-package']) {
+    assert.equal(packageInstallSource(`  pi install ${source}  `), source);
+    assert.equal(packageInstallSource(source), source);
+  }
+  assert.equal(packageInstallSource('pi install "/tmp/package with spaces"'), '/tmp/package with spaces');
+  assert.equal(packageInstallSource("pi install '/tmp/package with spaces'"), '/tmp/package with spaces');
+  assert.equal(packageInstallSource('/tmp/package with spaces'), '/tmp/package with spaces');
+  for (const input of ['pi', 'pi install', 'pi install " "', 'pi remove npm:plugin', 'pi install npm:a npm:b', 'pi install npm:a && touch /tmp/proof', 'pi install npm:a;pwd', 'pi install "unterminated']) {
+    assert.throws(() => packageInstallSource(input), /安装|来源|命令|引号/);
+  }
+  assert.throws(() => packageInstallSource('pi install --local'), /用户级/);
 });

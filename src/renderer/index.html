@@ -378,12 +378,12 @@
             <option value="package">Pi 资源包（插件 / 技能）</option>
             <option value="skill">本地技能</option>
           </select>
-          <label for="plugin-source">安装来源</label>
+          <label for="plugin-source">安装命令或来源</label>
           <div class="plugin-source-row">
-            <input id="plugin-source" required autocomplete="off" placeholder="npm:包名、Git 地址或本地资源包路径" />
+            <input id="plugin-source" required autocomplete="off" placeholder="pi install npm:pi-goal-x，或 npm:包名、Git 地址、本地目录" />
             <button id="choose-plugin-source" class="secondary-button" type="button">选择目录</button>
           </div>
-          <p class="path-note">Pi 资源包支持 npm、Git 和本地目录。本地技能 引用原目录，请保留其文件。仅安装你信任的插件。</p>
+          <p class="path-note">可直接粘贴 pi install npm:包名，也可填写 npm、Git 或本地目录来源。资源包安装到用户级配置；本地技能引用原目录，请保留其文件。仅安装你信任的插件。</p>
           <div class="plugin-actions">
             <button id="install-plugin" class="primary-button" type="submit">安装</button>
           </div>
