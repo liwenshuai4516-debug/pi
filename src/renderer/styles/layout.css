@@ -167,32 +167,25 @@
   width: 100%;
   gap: 9px;
   border-radius: 7px;
-  padding: 12px 10px;
+  padding: 8px 10px;
   margin: 3px 0;
+  align-items: center;
+  height: 36px;
 }
 .session-row.active {
   background: var(--selected);
 }
 .session-row > span:first-child {
   color: var(--muted);
-  margin-top: 2px;
-}
-.session-row div {
-  min-width: 0;
+  flex-shrink: 0;
 }
 .session-row strong {
+  min-width: 0;
+  flex: 1;
+  line-height: 20px;
   font-size: 12px;
   font-weight: 500;
   display: block;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.session-row small {
-  display: block;
-  margin-top: 6px;
-  font-size: 10px;
-  color: var(--muted);
   text-overflow: ellipsis;
   overflow: hidden;
   white-space: nowrap;

@@ -126,6 +126,28 @@ try {
     'Enter sends through real SDK; Shift+Enter adds newline; IME confirmation/repeat never sends',
   );
   pass('real composer → direct SDK streaming → write tool → actual file and tool result');
+  const expandedWidth = await page.locator('.chat-panel').evaluate((node) => node.clientWidth);
+  const currentSession = await page.locator('[data-session].active').getAttribute('data-session');
+  await page.locator('#prompt').fill('折叠时保留的草稿');
+  await page.locator('#toggle-sidebar').click();
+  assert.equal(await page.locator('#session-sidebar').isVisible(), false);
+  assert.equal(await page.locator('#toggle-sidebar').getAttribute('aria-expanded'), 'false');
+  assert.ok(await page.locator('.chat-panel').evaluate((node) => node.clientWidth) > expandedWidth);
+  assert.equal(await page.locator('#prompt').inputValue(), '折叠时保留的草稿');
+  await page.screenshot({ path: join(evidence, 'sidebar-collapsed.png') });
+  await page.locator('#toggle-sidebar').press('Enter');
+  assert.equal(await page.locator('#session-sidebar').isVisible(), true);
+  assert.equal(await page.locator('#toggle-sidebar').getAttribute('aria-expanded'), 'true');
+  assert.equal(await page.locator('[data-session].active').getAttribute('data-session'), currentSession);
+  await page.locator('#toggle-sidebar').click();
+  await page.locator('#prompt').press('Control+k');
+  assert.equal(await page.locator('#session-sidebar').isVisible(), true);
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'session-search');
+  await page.locator('#session-search').fill('不存在的会话标题');
+  assert.equal(await page.locator('[data-session]').count(), 0);
+  await page.locator('#session-search').fill('');
+  await page.locator('[data-session].active').waitFor();
+  pass('sidebar collapse frees chat space, preserves draft/selection; keyboard toggle and search reopen work');
   const beforeExtension = fixture.state.requests;
   await page.locator('#prompt').fill('/desktop-extension');
   await page.locator('#prompt').press('Enter');
@@ -230,6 +252,34 @@ try {
     ),
     true,
   );
+  // 真实重命名后的长标题保持单行，管理按钮仍在可点击区域内。
+  const longName = 'WRITE_FIXTURE · 已重命名 · ' + '用于验证单行省略的长会话标题'.repeat(5);
+  await page.locator(`[data-manage="${sourceId}"]`).click();
+  await page.locator('#session-name').fill(longName);
+  await page.locator('#session-rename').click();
+  await page.locator('#session-dialog').waitFor({ state: 'hidden' });
+  const row = page.locator(`[data-session="${sourceId}"]`);
+  assert.ok((await row.getAttribute('title')).startsWith(longName));
+  assert.equal(await row.locator('small').count(), 0);
+  const geometry = await row.evaluate((node) => {
+    const title = node.querySelector('strong');
+    const menu = node.parentElement.querySelector('[data-manage]').getBoundingClientRect();
+    return {
+      height: node.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(title).lineHeight),
+      titleHeight: title.getBoundingClientRect().height,
+      ellipsis: getComputedStyle(title).textOverflow,
+      truncated: title.scrollWidth > title.clientWidth,
+      menuInside: menu.right <= document.getElementById('session-sidebar').getBoundingClientRect().right,
+    };
+  });
+  assert.equal(geometry.height, 36);
+  assert.equal(geometry.titleHeight, geometry.lineHeight);
+  assert.equal(geometry.ellipsis, 'ellipsis');
+  assert.equal(geometry.truncated, true);
+  assert.equal(geometry.menuInside, true);
+  await page.screenshot({ path: join(evidence, 'sessions-compact.png') });
+  pass('long session titles stay on one compact line with tooltip and accessible management action');
   const invalid = await page.evaluate(async (id) => {
     const failures = [];
     for (const action of [
@@ -255,7 +305,12 @@ try {
     await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth),
     false,
   );
-  pass('900px desktop layout has no horizontal page overflow');
+  await page.locator('#toggle-sidebar').click();
+  assert.equal(await page.locator('#session-sidebar').isVisible(), false);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+  await page.screenshot({ path: join(evidence, 'narrow-collapsed.png') });
+  await page.locator('#toggle-sidebar').click();
+  pass('900px desktop layout has no horizontal page overflow with sidebar expanded or collapsed');
   const before = fixture.state.requests;
   await app.evaluate(({ app }) => app.quit());
   await app.waitForEvent('close', { timeout: 20000 }).catch(() => {});

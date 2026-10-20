@@ -22,7 +22,7 @@
         <span class="version">桌面客户端 · 0.1.0</span>
       </header>
       <div class="workspace">
-        <aside class="sidebar">
+        <aside id="session-sidebar" class="sidebar">
           <div class="eyebrow">工作空间</div>
           <button id="project-picker" class="project-picker">
             <span class="project-icon" aria-hidden="true">P</span
@@ -53,6 +53,14 @@
         <main class="chat-panel">
           <div class="panel-toolbar">
             <div>
+              <button id="toggle-sidebar" class="icon-button" aria-label="收起会话栏"
+                aria-controls="session-sidebar" aria-expanded="true" title="收起会话栏">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <path d="M9 4v16" />
+                </svg>
+              </button>
               <span class="chat-icon" aria-hidden="true">▱</span
               ><strong id="chat-title">新会话</strong>
             </div>

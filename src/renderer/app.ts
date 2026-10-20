@@ -9,6 +9,7 @@ import { bindExtensionShortcuts } from './features/composer/extension-shortcuts.
 import { bindModelSettings } from './features/models/settings.js';
 import { renderModelChoices } from './features/models/choices.js';
 import { bindSessionManagement } from './features/sessions/management.js';
+import { bindSessionSidebar } from './features/sessions/sidebar.js';
 import { renderSessionList } from './features/sessions/list.js';
 import { renderMessages } from './features/chat/messages.js';
 import { el, escape, nameOf } from './shared/dom.js';
@@ -20,6 +21,7 @@ import type {
   SessionView,
 } from '../shared/types.js';
 const api = window.agentClient;
+const setSidebarExpanded = bindSessionSidebar();
 const prompt = el<HTMLTextAreaElement>('prompt');
 const send = el<HTMLButtonElement>('send');
 const messages = el<HTMLDivElement>('messages');
@@ -337,6 +339,7 @@ document.addEventListener('keydown', (event) => {
   }
   if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
     event.preventDefault();
+    setSidebarExpanded(true);
     el<HTMLInputElement>('session-search').focus();
   }
   if ((event.metaKey || event.ctrlKey) && event.key === ',') {

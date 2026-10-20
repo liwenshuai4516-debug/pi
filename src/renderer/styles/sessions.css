@@ -15,9 +15,6 @@
   width: auto;
   margin: 0;
 }
-.session-row > div {
-  flex: 1;
-}
 .session-manage {
   width: 30px;
   min-width: 30px;
