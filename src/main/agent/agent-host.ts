@@ -5,6 +5,7 @@ import {
 } from '../workspace/permissions.js';
 import { listSavedSessions } from '../sessions/catalog.js';
 import { expandTemplate } from './prompt-templates.js';
+import { DEFAULT_SYSTEM_PROMPT } from './system-prompt.js';
 import { join } from 'node:path';
 import { stat, unlink } from 'node:fs/promises';
 import {
@@ -242,8 +243,7 @@ export class AgentHost {
     });
     await resources.reload();
     const systemPrompt = [
-      resources.getSystemPrompt() ??
-        'You are a coding assistant. Use the provided tools to complete the user task. Report actual results accurately.',
+      resources.getSystemPrompt() ?? DEFAULT_SYSTEM_PROMPT,
       ...resources.getAppendSystemPrompt(),
       `Working directory: ${cwd}`,
       ...resources.getAgentsFiles().agentsFiles.map((file) => `${file.path}\n${file.content}`),
