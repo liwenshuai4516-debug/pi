@@ -10,6 +10,7 @@
 | [客户端协作规范](/Users/liyingjun/Desktop/SW-QA/13-pi/agent-client/AGENTS.md) | 根目录与客户端合并去重后的统一规则 |
 | [首版实现说明](/Users/liyingjun/Desktop/SW-QA/13-pi/agent-client/docs/pi-web-desktop/04-SDK客户端首版实现说明.md) | 当前 SDK 客户端的实现范围和验证边界 |
 | [Pi 扩展使用指南](./Pi扩展使用指南.md) | Packages、Skills、MCP Servers 分类、管理范围与实际加载验证 |
+| [测试业务闭环设计](./测试业务闭环设计.md) | 面向业务系统的接口、UI、联动测试流程；技能与工具选型、结果回归及可选多 Agent 调度设计，尚未执行 |
 | `Pi-Web-Electron-产品改造方案-v1.0.md`、`pi-web-desktop/01`–`03` | 已失效的历史方案，不作为当前执行要求；仅保留产品语义和决策追溯 |
 | `demo/` | 设计参考原型；以用户最新确认布局为准，不是业务执行或验证证据 |
 
