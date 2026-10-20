@@ -257,6 +257,18 @@ try {
   await page.locator('#prompt').fill('WAIT_FOR_STOP');
   await page.locator('#send').click();
   await until(() => fixture.state.waiting > 0);
+  const spinner = page.locator('.running-label .execution-spinner');
+  await spinner.waitFor();
+  const frames = new Set();
+  for (let index = 0; index < 8; index++) {
+    frames.add(await spinner.evaluate((node) => getComputedStyle(node, '::before').content));
+    await page.waitForTimeout(100);
+  }
+  assert.ok(frames.size > 1, 'running indicator must actually change frames');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await spinner.evaluate((node) => getComputedStyle(node, '::before').animationName), 'none');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.screenshot({ path: join(evidence, 'execution-animation.png') });
   assert.equal(await page.locator('#thinking').isDisabled(), true);
   assert.equal(await page.locator('#workspace-permission').isDisabled(), true);
   const runningRequests = fixture.state.requests;
@@ -276,6 +288,7 @@ try {
   await page.getByRole('button', { name: '停止执行', exact: true }).click();
   await until(() => fixture.state.aborted > 0);
   await page.getByText('已停止', { exact: true }).waitFor();
+  assert.equal(await page.locator('.running-label .execution-spinner').count(), 0);
   assert.equal(await page.locator('#messages').getByText('Request was aborted', { exact: true }).count(), 0);
   assert.equal(await page.locator('#error-banner').isVisible(), false);
   await until(async () => (await page.locator('#send').getAttribute('aria-label')) === '发送任务');

@@ -59,7 +59,7 @@ export function renderMessages(active: SessionView | null): void {
         return renderMessage(message, index, active, turn);
       }).join('') +
       (active.running
-        ? '<div class="running-label" role="status"><span class="status-dot"></span>Agent 正在执行…</div>'
+        ? '<div class="running-label" role="status"><span class="execution-spinner" aria-hidden="true"></span>Agent 正在执行…</div>'
         : '');
   }
   for (const detail of messages.querySelectorAll<HTMLDetailsElement>('details'))

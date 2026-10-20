@@ -25,7 +25,7 @@ export function renderToolTrace(block: ContentBlock, active: SessionView | null)
   const label = toolLabels[name] ?? name;
   return `<details class="tool-card ${status === '失败' ? 'failed' : ''}" data-key="tool-${escape(block.id)}"><summary>
     <svg class="trace-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
-    <strong title="${escape(name)}">${escape(label)}</strong><span class="tool-target">${escape(typeof target === 'string' ? target : name)}</span><small class="tool-status">${status}</small>
+    <strong title="${escape(name)}">${escape(label)}</strong><span class="tool-target">${escape(typeof target === 'string' ? target : name)}</span><small class="tool-status">${status === '执行中' ? '<span class="execution-spinner" aria-hidden="true"></span>' : ''}${status}</small>
     </summary><div class="trace-detail"><div class="trace-tool-name">工具标识：<code>${escape(name)}</code></div><h4>输入参数</h4>
     <pre class="tool-output">${escape(JSON.stringify(block.arguments ?? {}, null, 2))}</pre><h4>执行结果</h4>
     <pre class="tool-output">${escape(resultText || (status === '执行中' ? '正在等待工具返回…' : status === '已停止' ? '任务已停止，工具尚未返回结果。' : '暂无文本结果。'))}</pre></div></details>`;

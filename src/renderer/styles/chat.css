@@ -250,3 +250,33 @@
   .thinking-block > summary::before,
   .trace-chevron { transition: none; }
 }
+
+/* 沿用 Pi TUI 的十帧点阵转子；固定宽度避免状态文字随帧抖动。 */
+.execution-spinner {
+  display: inline-block;
+  width: 14px;
+  flex: 0 0 14px;
+  color: var(--accent);
+  font: 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: center;
+}
+.execution-spinner::before {
+  content: '⠋';
+  animation: pi-execution-spin 800ms step-end infinite;
+}
+.tool-status .execution-spinner { margin-right: 5px; vertical-align: -1px; }
+@keyframes pi-execution-spin {
+  0%, 100% { content: '⠋'; }
+  10% { content: '⠙'; }
+  20% { content: '⠹'; }
+  30% { content: '⠸'; }
+  40% { content: '⠼'; }
+  50% { content: '⠴'; }
+  60% { content: '⠦'; }
+  70% { content: '⠧'; }
+  80% { content: '⠇'; }
+  90% { content: '⠏'; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .execution-spinner::before { animation: none; content: '⠿'; }
+}
