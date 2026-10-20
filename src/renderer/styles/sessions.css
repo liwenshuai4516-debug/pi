@@ -1,0 +1,98 @@
+/* 会话打开与管理使用并列按钮，避免嵌套交互；键盘焦点始终可见。 */
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 7px;
+  margin: 3px 0;
+}
+.session-item:has(.active) {
+  background: var(--selected);
+}
+.session-row {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+}
+.session-row > div {
+  flex: 1;
+}
+.session-manage {
+  width: 30px;
+  min-width: 30px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--muted);
+  margin-right: 3px;
+}
+.session-item:hover {
+  background: var(--hover);
+}
+#session-dialog {
+  width: min(560px, calc(100vw - 40px));
+}
+#session-name {
+  display: block;
+  width: 100%;
+  margin-top: 9px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+.session-action-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.session-action-section h3,
+#session-delete-confirm h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 9px;
+}
+.session-action-section p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+.danger-text {
+  color: var(--error);
+  padding: 8px;
+  border-radius: 6px;
+}
+.danger-button {
+  background: var(--error);
+  color: var(--elevated);
+  border-radius: 6px;
+  padding: 10px 15px;
+}
+.danger-button:hover {
+  background: var(--accent-hover);
+}
+.session-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+.session-notice {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 40px);
+  padding: 12px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px #34312b18;
+  background: var(--elevated);
+  color: var(--text);
+  font-size: 12px;
+  z-index: 10;
+}

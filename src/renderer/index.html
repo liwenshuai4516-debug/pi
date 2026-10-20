@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Pi Agent</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="titlebar">
+        <div class="brand">
+          <span class="logo">π</span><strong>pi</strong><span class="brand-caption">agent</span>
+        </div>
+        <div class="title-center">
+          <span class="status-dot"></span><span id="global-status">正在初始化…</span>
+        </div>
+        <span class="version">桌面客户端 · 0.1.0</span>
+      </header>
+      <div class="workspace">
+        <aside class="sidebar">
+          <div class="eyebrow">工作空间</div>
+          <button id="project-picker" class="project-picker">
+            <span class="project-icon" aria-hidden="true">P</span
+            ><span
+              ><strong id="project-name">选择项目</strong
+              ><small id="project-caption">本地工作目录</small></span
+            ><span aria-hidden="true">⌄</span>
+          </button>
+          <button id="new-session" class="new-chat" disabled>
+            <span aria-hidden="true">＋</span> 新建会话 <kbd>⌘ N</kbd>
+          </button>
+          <div class="search">
+            <span aria-hidden="true">⌕</span
+            ><input id="session-search" placeholder="搜索会话…" aria-label="搜索会话" /><kbd
+              >⌘ K</kbd
+            >
+          </div>
+          <div class="side-heading"><span>会话</span><span id="session-count">0</span></div>
+          <nav id="sessions" aria-label="历史会话"><p class="side-empty">正在读取会话…</p></nav>
+          <div class="sidebar-bottom">
+            <button id="settings-button">
+              <span aria-hidden="true">⚙</span> 模型配置
+              <span class="arrow" aria-hidden="true">↗</span>
+            </button>
+            <div class="local-status"><span class="status-dot"></span> 本地 Pi Agent</div>
+          </div>
+        </aside>
+        <main class="chat-panel">
+          <div class="panel-toolbar">
+            <div>
+              <span class="chat-icon" aria-hidden="true">▱</span
+              ><strong id="chat-title">新会话</strong>
+            </div>
+            <button
+              id="toggle-info"
+              class="icon-button"
+              aria-label="展开会话信息"
+              aria-expanded="false"
+              title="会话信息"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+              >
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M15 4v16" />
+              </svg>
+            </button>
+          </div>
+          <div id="project-path" class="context-bar">选择项目，让 Agent 从你的工作目录开始</div>
+          <div id="messages" class="messages" aria-label="会话内容"></div>
+          <div class="composer-area">
+            <div id="error-banner" class="error-banner" role="alert" hidden></div>
+            <div id="warning-banner" class="warning-banner" hidden></div>
+            <div id="attachments" class="attachments"></div>
+            <div class="composer">
+              <textarea
+                id="prompt"
+                rows="3"
+                placeholder="描述你的任务，或输入 / 使用提示模板…"
+                aria-label="任务输入"
+                disabled
+              ></textarea>
+              <div class="composer-bottom">
+                <div class="composer-options">
+                  <button
+                    id="attach"
+                    class="icon-button"
+                    aria-label="添加附件"
+                    title="添加附件"
+                    disabled
+                  >
+                    <svg
+                      width="17"
+                      height="17"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      stroke-linecap="round"
+                    >
+                      <path
+                        d="m8 12 7-7a4 4 0 0 1 6 6L10 22a6 6 0 0 1-8-8L13 3a2 2 0 0 1 3 3L5 17"
+                      />
+                    </svg>
+                  </button>
+                  <details id="templates" class="popover">
+                    <summary aria-label="提示模板" title="提示模板">
+                      <svg
+                        width="17"
+                        height="17"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                      >
+                        <path
+                          d="M12 5v16M3 4c4-1 6 0 9 1 3-1 5-2 9-1v15c-4-1-6 0-9 1-3-1-5-2-9-1Z"
+                        />
+                      </svg>
+                    </summary>
+                    <div class="popover-content">
+                      <strong>提示模板</strong>
+                      <div id="template-list"><p>选择项目并新建会话后加载。</p></div>
+                    </div>
+                  </details>
+                  <select id="model" aria-label="模型" disabled>
+                    <option value="">选择模型</option>
+                  </select>
+                  <span class="thinking-icon" aria-hidden="true">ϟ</span
+                  ><select id="thinking" aria-label="思考强度" disabled>
+                    <option value="off">关闭思考</option>
+                  </select>
+                  <details id="permissions" class="popover">
+                    <summary>
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.6"
+                        aria-hidden="true"
+                      >
+                        <path d="m12 3 9 4v6c0 5-9 9-9 9s-9-4-9-9V7Z" /></svg
+                      ><span id="permission-label">工作区权限</span>
+                    </summary>
+                    <div class="popover-content">
+                      <strong>工作区权限</strong><label for="workspace-permission">访问范围</label
+                      ><select id="workspace-permission" disabled>
+                        <option value="read-only">只读</option>
+                        <option value="workspace">工作区读写</option>
+                        <option value="full-access">完全访问</option>
+                      </select>
+                      <p id="permission-description"></p>
+                      <p>
+                        仅影响当前会话，运行中不能切换。区外普通文件请先移入项目，或选择完全访问。
+                      </p>
+                    </div>
+                  </details>
+                </div>
+                <button id="send" class="send" aria-label="发送任务" title="发送任务" disabled>
+                  <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  >
+                    <path d="M12 20V4m-6 6 6-6 6 6" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="composer-caption">
+              <span id="task-status">Enter 发送 · Shift + Enter 换行</span><span>Pi Agent SDK</span>
+            </div>
+          </div>
+        </main>
+        <aside id="info-panel" class="info-panel" hidden>
+          <h3>会话信息</h3>
+          <div id="session-info"></div>
+        </aside>
+      </div>
+    </div>
+    <dialog id="settings-dialog">
+      <form id="model-form">
+        <div class="dialog-head">
+          <div>
+            <span class="eyebrow">模型配置</span>
+            <h2>连接你的模型</h2>
+          </div>
+          <button id="close-settings" type="button" class="icon-button" aria-label="关闭模型配置">
+            ×
+          </button>
+        </div>
+        <div class="dialog-body">
+          <p class="description">
+            自动读取 Pi 已有的模型与认证配置。也可在这里添加 OpenAI 兼容接口；其他协议和 OAuth 沿用
+            Pi 原配置。
+          </p>
+          <div id="configured-models" class="configured-models"></div>
+          <label
+            >提供商标识<input
+              name="provider"
+              placeholder="例如 my-provider"
+              required
+              autocomplete="off"
+          /></label>
+          <label
+            >API 地址<input
+              name="baseUrl"
+              type="url"
+              placeholder="https://your-provider.com/v1"
+              required
+          /></label>
+          <label
+            >模型 ID<input name="modelId" placeholder="填写提供商提供的模型 ID" required
+          /></label>
+          <label class="checkbox-label"
+            ><input name="reasoning" type="checkbox" />此模型支持可调思考强度</label
+          >
+          <p class="path-note">
+            请按供应商能力配置。勾选后可在输入框底部选择强度，具体级别由 Pi SDK 决定。
+          </p>
+          <label
+            >API Key<input
+              name="apiKey"
+              type="password"
+              placeholder="仅用于连接模型，不会显示在会话中"
+              required
+              autocomplete="off"
+          /></label>
+          <p id="model-error" class="form-error" role="alert" hidden></p>
+          <p id="config-directory" class="path-note"></p>
+        </div>
+        <div class="dialog-footer">
+          <button id="refresh-models" type="button" class="secondary-button">刷新已有配置</button
+          ><button id="save-model" class="primary-button" type="submit">保存并加载</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="session-dialog" aria-labelledby="session-dialog-title">
+      <div class="dialog-head">
+        <div>
+          <span class="eyebrow">会话管理</span>
+          <h2 id="session-dialog-title">管理会话</h2>
+        </div>
+        <button id="close-session-dialog" class="icon-button" aria-label="关闭会话管理">×</button>
+      </div>
+      <div class="dialog-body">
+        <div id="session-main">
+          <form id="session-rename-form">
+            <label for="session-name">会话名称</label
+            ><input id="session-name" required maxlength="120" autocomplete="off" />
+            <p class="path-note">最多 120 个字符。未发送的空会话会在首次发送后保存到磁盘。</p>
+            <button id="session-rename" class="primary-button" type="submit">保存名称</button>
+          </form>
+          <section class="session-action-section">
+            <div>
+              <h3>分支续聊</h3>
+              <p>
+                从当前已保存的进度创建独立会话，保留原会话。运行中尚未完成的回复不会被复制，历史工具不会重新执行。
+              </p>
+            </div>
+            <button id="session-fork" class="secondary-button">创建分支并打开</button>
+          </section>
+          <section class="session-action-section">
+            <div>
+              <h3>删除会话</h3>
+              <p>移除这条会话的历史和草稿，项目文件及其他分支会保留。</p>
+            </div>
+            <button id="session-delete" class="danger-text">删除会话…</button>
+          </section>
+        </div>
+        <div id="session-delete-confirm" hidden>
+          <h3>确认删除会话？</h3>
+          <p id="session-delete-description" class="description"></p>
+          <div class="session-confirm-actions">
+            <button id="cancel-session-delete" class="secondary-button">返回</button
+            ><button id="confirm-session-delete" class="danger-button">停止任务并删除会话</button>
+          </div>
+        </div>
+        <p id="session-action-progress" class="path-note" role="status" hidden></p>
+        <p id="session-action-error" class="form-error" role="alert" hidden></p>
+      </div>
+    </dialog>
+    <div id="session-notice" class="session-notice" role="status" hidden></div>
+    <script src="app.js"></script>
+  </body>
+</html>

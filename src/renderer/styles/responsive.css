@@ -1,0 +1,36 @@
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (max-width: 1100px) {
+  .sidebar {
+    width: 230px;
+  }
+  .brand {
+    width: 187px;
+  }
+  .composer-options select {
+    max-width: 200px;
+  }
+  .info-panel {
+    width: 260px;
+  }
+  .composer-area {
+    padding: 10px 22px;
+  }
+  .messages {
+    padding: 24px;
+  }
+  .version {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *:before,
+  *:after {
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

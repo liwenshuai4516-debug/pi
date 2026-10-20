@@ -1,0 +1,23 @@
+/* 模型能力与工作区权限控件沿用主题，窄窗口中仍可完整操作。 */
+.checkbox-label {
+  flex-direction: row;
+  align-items: center;
+  line-height: 1.6;
+}
+.checkbox-label input {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  accent-color: var(--accent);
+}
+#workspace-permission {
+  display: block;
+  width: 100%;
+  max-width: none;
+  margin: 10px 0;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}

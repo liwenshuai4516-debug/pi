@@ -1,0 +1,17 @@
+# 本地依赖、构建与验证产物由命令重新生成。
+node_modules/
+dist/
+release/
+evidence/
+coverage/
+*.log
+.DS_Store
+
+# 本地凭据与 Agent 运行数据不得进入版本库。
+.env
+.env.*
+!.env.example
+.pi/
+.pi-web/
+*.pem
+*.key
