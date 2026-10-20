@@ -476,6 +476,7 @@ try {
   await finalPage.screenshot({ path: join(evidence, 'continued-session.png') });
   await finalPage.locator('#plugins-button').click();
   await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
+  await finalPage.locator('#plugin-install summary').click();
   await finalPage.locator('#plugin-source').fill(join(fixture.root, 'missing-package'));
   await finalPage.locator('#install-plugin').click();
   await finalPage.locator('#plugin-error').waitFor({ state: 'visible' });
@@ -483,7 +484,7 @@ try {
   await finalPage.locator('#plugin-source').fill(installFixture.packageDir);
   await finalPage.locator('#install-plugin').click();
   await finalPage.locator('#plugin-status').filter({ hasText: '安装完成' }).waitFor();
-  await finalPage.locator('#plugin-extensions').getByText('index.ts', { exact: true }).waitFor();
+  await until(async () => (await finalPage.locator('#plugin-extensions li:not(.resource-empty)').count()) >= 2);
   await finalPage.locator('#plugin-kind').selectOption('skill');
   await app.evaluate(({ dialog }, path) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
@@ -492,6 +493,7 @@ try {
   await until(async () => (await finalPage.locator('#plugin-source').inputValue()) === installFixture.skillDir);
   await finalPage.locator('#install-plugin').click();
   await finalPage.locator('#plugin-status').filter({ hasText: '安装完成' }).waitFor();
+  await finalPage.locator('#skills-tab').click();
   await finalPage.locator('#plugin-skills').getByText('installed-skill', { exact: true }).waitFor();
   await finalPage.screenshot({ path: join(evidence, 'plugins-installed.png') });
   await finalPage.locator('#activate-plugins').click();
@@ -520,8 +522,43 @@ try {
   assert.match(JSON.stringify(fixture.state.payloads.at(-1)), /INSTALL_SKILL_DESCRIPTION/);
   await finalPage.locator('#plugins-button').click();
   await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
+  await finalPage.locator('#skills-tab').click();
   await finalPage.locator('#plugin-skills').getByText('当前会话已加载', { exact: true }).waitFor();
+  const skillSwitch = finalPage.locator('#plugin-skills [role=switch]');
+  assert.equal(await skillSwitch.getAttribute('aria-checked'), 'true');
+  await skillSwitch.click();
+  await finalPage.locator('#plugin-status').filter({ hasText: '新建对话后生效' }).waitFor();
+  assert.equal(await finalPage.locator('#plugin-skills [role=switch]').getAttribute('aria-checked'), 'false');
   await finalPage.screenshot({ path: join(evidence, 'plugins-loaded.png') });
+  await finalPage.locator('#plugins-tab').click();
+  const extensionSwitch = finalPage.locator('#plugin-extensions [role=switch][data-path$="/index.ts"]');
+  assert.equal(await extensionSwitch.getAttribute('aria-checked'), 'true');
+  await extensionSwitch.click();
+  await finalPage.locator('#plugin-status').filter({ hasText: '新建对话后生效' }).waitFor();
+  assert.equal(await extensionSwitch.getAttribute('aria-checked'), 'false');
+  await finalPage.locator('#close-plugins').click();
+  await finalPage.locator('#new-session').click();
+  await finalPage.locator('#plugins-button').click();
+  await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
+  await finalPage.locator('#skills-tab').click();
+  assert.equal(await finalPage.locator('#plugin-skills [role=switch]').getAttribute('aria-checked'), 'false');
+  await finalPage.locator('#plugin-skills [role=switch]').click();
+  await finalPage.locator('#plugin-status').filter({ hasText: '新建对话后生效' }).waitFor();
+  await finalPage.locator('#plugins-tab').click();
+  await finalPage.locator('#plugin-extensions [role=switch][data-path$="/index.ts"]').click();
+  await finalPage.locator('#plugin-status').filter({ hasText: '新建对话后生效' }).waitFor();
+  await finalPage.locator('#close-plugins').click();
+  await finalPage.locator('#new-session').click();
+  await finalPage.locator('#prompt').fill('INSTALLED_PLUGIN_TOOL');
+  await finalPage.locator('#prompt').press('Enter');
+  await until(async () => {
+    try { return (await readFile(join(fixture.project, 'installed-plugin-proof.txt'), 'utf8')) === 'INSTALLED_PLUGIN_EXECUTED'; }
+    catch { return false; }
+  });
+  await finalPage.locator('#plugins-button').click();
+  await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
+  await finalPage.locator('#skills-tab').click();
+  assert.equal(await finalPage.locator('#plugin-skills [role=switch]').getAttribute('aria-checked'), 'true');
   await finalPage.locator('#close-plugins').click();
   assert.deepEqual(report.pageErrors, []);
   pass('UI-imported Skill is loaded, advertised in model context, and slash invocation sends real Skill contents');

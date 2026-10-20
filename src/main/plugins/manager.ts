@@ -16,16 +16,45 @@ export class PluginManager {
   async list(): Promise<PluginInventory> {
     const { packages } = this.context();
     const paths = await packages.resolve(async () => 'skip');
-    const loaded = loadSkills({
-      cwd: this.cwd, agentDir: this.agentDir, includeDefaults: false,
-      skillPaths: paths.skills.filter((item) => item.enabled).map((item) => item.path),
-    });
+    const loaded = paths.skills.map((resource) => ({
+      resource,
+      result: loadSkills({ cwd: this.cwd, agentDir: this.agentDir, includeDefaults: false, skillPaths: [resource.path] }),
+    }));
     return {
       packages: packages.listConfiguredPackages().map((item) => ({ source: item.source, installed: !!item.installedPath })),
-      extensions: paths.extensions.filter((item) => item.enabled).map((item) => ({ name: basename(item.path), path: item.path })),
-      skills: loaded.skills.map((item) => ({ name: item.name, description: item.description, path: item.filePath })),
-      diagnostics: loaded.diagnostics.map((item) => item.message),
+      extensions: paths.extensions.map((item) => ({ name: basename(item.path), path: item.path, enabled: item.enabled, source: item.metadata.source })),
+      skills: loaded.flatMap(({ resource, result }) => result.skills.map((item) => ({
+        name: item.name, description: item.description, path: item.filePath, enabled: resource.enabled,
+      }))),
+      diagnostics: loaded.flatMap(({ result }) => result.diagnostics.map((item) => item.message)),
     };
+  }
+  async setEnabled(path: string, kind: 'extension' | 'skill', enabled: boolean): Promise<PluginInventory> {
+    if (kind !== 'extension' && kind !== 'skill' || typeof enabled !== 'boolean') throw new Error('开关参数无效');
+    const { settings, packages } = this.context();
+    const paths = await packages.resolve(async () => 'skip');
+    const type = kind === 'extension' ? 'extensions' : 'skills';
+    const resource = paths[type].find((item) => item.path === path);
+    if (!resource || resource.metadata.scope !== 'user') throw new Error('未找到可管理的用户级资源');
+    // Pi 包的过滤规则保存在包条目内；顶层路径规则不能禁用包内资源。
+    const update = (entries: string[]) => [
+      ...entries.filter((entry) => entry !== `+${path}` && entry !== `-${path}`),
+      `${enabled ? '+' : '-'}${path}`,
+    ];
+    if (resource.metadata.origin === 'package') {
+      settings.setPackages((settings.getGlobalSettings().packages ?? []).map((entry) => {
+        const source = typeof entry === 'string' ? entry : entry.source;
+        if (source !== resource.metadata.source) return entry;
+        const pkg = typeof entry === 'string' ? { source } : entry;
+        return { ...pkg, [type]: update(pkg[type] ?? []) };
+      }));
+    } else if (type === 'extensions') {
+      settings.setExtensionPaths(update(settings.getGlobalSettings().extensions ?? []));
+    } else {
+      settings.setSkillPaths(update(settings.getGlobalSettings().skills ?? []));
+    }
+    await settings.flush();
+    return this.list();
   }
   async install(source: string, kind: 'package' | 'skill'): Promise<PluginInventory> {
     if (this.installing) throw new Error('正在安装，请等待完成');

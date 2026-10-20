@@ -92,6 +92,14 @@ export function registerAgentIpc(
   const plugins = () => new PluginManager(host.agentDir, join(app.getPath('userData'), 'workspace'));
   let installingPlugin = false;
   handle('agent:plugins', () => plugins().list());
+  handle('agent:plugin-enabled', async (path: unknown, kind: unknown, enabled: unknown) => {
+    string(path, '资源路径', 4000);
+    if ((kind !== 'extension' && kind !== 'skill') || typeof enabled !== 'boolean') throw new Error('开关参数无效');
+    if (host.active || installingPlugin) throw new Error('请等待当前任务或配置更新结束');
+    installingPlugin = true;
+    try { return await plugins().setEnabled(path as string, kind, enabled); }
+    finally { installingPlugin = false; }
+  });
   handle('agent:install-plugin', async (source: unknown, kind: unknown) => {
     string(source, '安装来源', 2000);
     if (kind !== 'package' && kind !== 'skill') throw new Error('安装类型无效');

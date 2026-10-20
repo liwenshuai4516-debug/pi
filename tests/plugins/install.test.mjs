@@ -46,3 +46,39 @@ test('installed Pi package and Skill execute through real Agent; skill assets st
   assert.ok(resumed.skills.some((item) => item.name === 'installed-skill'));
   assert.ok(resumed.extensions.includes(join(packageDir, 'index.ts')));
 });
+
+test('plugin and Skill switches persist native Pi filters and change actual new Agent resources', async (t) => {
+  const fixture = await setupFixture();
+  const host = new AgentHost(() => {}, () => {}, fixture.agentDir);
+  t.after(async () => { await host.dispose(); fixture.close(); });
+  const { packageDir, skillDir } = await createInstallFixture(fixture);
+  let plugins = new PluginManager(fixture.agentDir, fixture.project);
+  await plugins.install(packageDir, 'package');
+  let inventory = await plugins.install(skillDir, 'skill');
+  const extension = inventory.extensions.find((item) => item.path === join(packageDir, 'index.ts'));
+  const skill = inventory.skills.find((item) => item.name === 'installed-skill');
+  assert.equal(extension.enabled, true);
+  assert.equal(skill.enabled, true);
+  await assert.rejects(plugins.setEnabled('/unregistered.ts', 'extension', false), /未找到/);
+  await assert.rejects(plugins.setEnabled(extension.path, 'extension', 'false'), /参数/);
+  await plugins.setEnabled(extension.path, 'extension', false);
+  await plugins.setEnabled(skill.path, 'skill', false);
+  // 重建管理器读取持久化配置；关闭的资源仍须显示，以便重新开启。
+  plugins = new PluginManager(fixture.agentDir, fixture.project);
+  inventory = await plugins.list();
+  assert.equal(inventory.extensions.find((item) => item.path === extension.path).enabled, false);
+  assert.equal(inventory.skills.find((item) => item.path === skill.path).enabled, false);
+  const disabled = await host.create(fixture.project, true);
+  assert.ok(!disabled.extensions.includes(extension.path));
+  assert.ok(!disabled.skills.some((item) => item.path === skill.path));
+  await assert.rejects(host.send(disabled.id, '/skill:installed-skill', [], []), /未找到 Skill/);
+  await plugins.setEnabled(extension.path, 'extension', true);
+  await plugins.setEnabled(skill.path, 'skill', true);
+  const enabled = await host.create(fixture.project, true);
+  assert.ok(enabled.extensions.includes(extension.path));
+  assert.ok(enabled.skills.some((item) => item.path === skill.path));
+  await host.send(enabled.id, 'INSTALLED_PLUGIN_TOOL', [], []);
+  assert.equal(await readFile(join(fixture.project, 'installed-plugin-proof.txt'), 'utf8'), 'INSTALLED_PLUGIN_EXECUTED');
+  await host.send(enabled.id, '/skill:installed-skill SWITCH_REENABLED', [], []);
+  assert.match(fixture.state.instructions.at(-1), /SKILL_INSTALL_PROOF/);
+});

@@ -330,7 +330,23 @@
         <div><span class="eyebrow">扩展能力</span><h2 id="plugins-title">插件与 Skill</h2></div>
         <button id="close-plugins" class="icon-button" aria-label="关闭插件管理">×</button>
       </div>
-      <div class="dialog-body">
+      <div class="plugin-layout">
+        <nav class="plugin-nav" aria-label="扩展分类">
+          <button id="plugins-tab" type="button" aria-pressed="true" aria-controls="plugins-pane">插件 <span id="plugins-count">0</span></button>
+          <button id="skills-tab" type="button" aria-pressed="false" aria-controls="skills-pane">技能 <span id="skills-count">0</span></button>
+          <p>管理已安装的扩展能力</p>
+        </nav>
+        <div class="plugin-content">
+          <section id="plugins-pane" class="resource-section" aria-labelledby="plugins-tab">
+            <h3>插件</h3><p class="plugin-intro">开启所需插件，为对话添加工具与能力。</p>
+            <ul id="plugin-extensions" class="resource-list"></ul>
+            <details class="package-details"><summary>已配置资源包</summary><ul id="plugin-packages" class="resource-list"></ul></details>
+          </section>
+          <section id="skills-pane" class="resource-section" aria-labelledby="skills-tab" hidden>
+            <h3>技能</h3><p class="plugin-intro">开启技能，让助手在任务中使用对应的工作方法。</p>
+            <ul id="plugin-skills" class="resource-list"></ul>
+          </section>
+          <details id="plugin-install"><summary>安装插件或技能</summary>
         <form id="plugin-form">
           <label for="plugin-kind">安装类型</label>
           <select id="plugin-kind">
@@ -345,16 +361,17 @@
           <p class="path-note">Pi 资源包支持 npm、Git 和本地目录。本地 Skill 引用原目录，请保留其文件。仅安装你信任的插件。</p>
           <div class="plugin-actions">
             <button id="install-plugin" class="primary-button" type="submit">安装</button>
-            <button id="activate-plugins" class="secondary-button" type="button">新建对话并加载</button>
           </div>
         </form>
-        <p id="plugin-status" role="status"></p>
-        <p id="plugin-error" class="form-error" role="alert" hidden></p>
-        <section class="resource-section"><h3>已配置资源包</h3><ul id="plugin-packages" class="resource-list"></ul></section>
-        <section class="resource-section"><h3>插件</h3><ul id="plugin-extensions" class="resource-list"></ul></section>
-        <section class="resource-section"><h3>Skill</h3><ul id="plugin-skills" class="resource-list"></ul></section>
-        <p id="plugin-diagnostics" class="form-error" hidden></p>
+          </details>
+          <p id="plugin-error" class="form-error" role="alert" hidden></p>
+          <p id="plugin-diagnostics" class="form-error" hidden></p>
+        </div>
       </div>
+      <footer class="plugin-footer">
+        <p id="plugin-status" role="status"></p>
+        <button id="activate-plugins" class="primary-button" type="button">新建对话并加载</button>
+      </footer>
     </dialog>
     <div id="session-notice" class="session-notice" role="status" hidden></div>
     <script src="app.js"></script>

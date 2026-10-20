@@ -13,6 +13,7 @@ function subscribe<T>(channel: string, callback: (value: T) => void): () => void
 const api: AgentClientApi = {
   initialize: () => invoke('agent:initialize'),
   listPlugins: () => invoke('agent:plugins'),
+  setPluginEnabled: (path, kind, enabled) => invoke('agent:plugin-enabled', path, kind, enabled),
   installPlugin: (source, kind) => invoke('agent:install-plugin', source, kind),
   choosePluginSource: (kind) => invoke('agent:plugin-source', kind),
   selectProject: () => invoke('agent:select-project'),

@@ -97,3 +97,73 @@
 #plugin-kind {
   margin-bottom: 16px;
 }
+
+/* 双栏管理弹窗：资源区独立滚动，保存状态与应用入口保持可见。 */
+#plugins-dialog {
+  width: min(980px, calc(100vw - 40px));
+  padding: 0;
+  overflow: hidden;
+}
+.plugin-layout {
+  display: grid;
+  grid-template-columns: 164px minmax(0, 1fr);
+  height: min(540px, calc(90vh - 180px));
+  min-height: 240px;
+}
+.plugin-nav {
+  padding: 24px 12px;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+.plugin-nav button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+.plugin-nav button[aria-pressed="true"] { background: var(--selected); color: var(--accent); font-weight: 600; }
+.plugin-nav button span { color: var(--muted); font-size: 12px; }
+.plugin-nav p { margin: 24px 12px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.plugin-content { overflow-y: auto; min-width: 0; padding: 24px; }
+.resource-section h3 { margin: 0; font-size: 17px; }
+.plugin-intro { margin: 8px 0 18px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.resource-list li { align-items: center; padding: 18px 0; }
+.resource-info { flex: 1; }
+.resource-info small { overflow-wrap: anywhere; }
+.resource-info strong { font-size: 13px; }
+.resource-info .resource-state { display: inline-block; margin-top: 8px; }
+.resource-control { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.resource-control > span { color: var(--muted); font-size: 12px; }
+.resource-switch {
+  width: 48px;
+  height: 44px;
+  padding: 8px 2px;
+  background: transparent;
+  position: relative;
+  border-radius: 8px;
+}
+.resource-switch::before { content: ''; display: block; width: 44px; height: 26px; background: var(--muted); border-radius: 20px; }
+.resource-switch[aria-checked="true"]::before { background: var(--accent); }
+.resource-switch > span { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: var(--bg); top: 12px; left: 5px; transition: transform 150ms ease; }
+.resource-switch[aria-checked="true"] > span { transform: translateX(18px); }
+.resource-switch:disabled { opacity: .5; cursor: wait; }
+#plugins-dialog button:focus-visible, #plugins-dialog summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.package-details, #plugin-install { margin-top: 24px; font-size: 12px; }
+#plugins-dialog summary { cursor: pointer; padding: 10px 0; color: var(--muted); }
+.plugin-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; border-top: 1px solid var(--border); }
+#plugin-status { margin: 0; }
+.plugin-footer button { flex-shrink: 0; }
+@media (max-width: 650px) {
+  .plugin-layout { grid-template-columns: 105px minmax(0, 1fr); }
+  .plugin-nav { padding: 16px 8px; }
+  .plugin-nav p { margin: 16px 4px; }
+  .plugin-content { padding: 16px; }
+  .resource-control > span { display: none; }
+  .plugin-footer { padding: 12px 16px; flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .resource-switch > span { transition: none; } }
