@@ -36,6 +36,7 @@ export class ClientExtensions {
   private baseTools: AgentTool[];
   private tools = new Map<string, AgentTool>();
   private activeTools?: Set<string>;
+  private defaultActiveTools = new Set<string>();
   private controller?: AbortController;
   private closed = false;
   private prompt: string;
@@ -64,7 +65,20 @@ export class ClientExtensions {
       loaded.extensions, loaded.runtime, manager.getCwd(), manager, new ModelRegistry(runtime),
     );
     const runner = this.runner;
-    runner.setUIContext(undefined, 'print');
+    runner.setUIContext({
+      ...runner.getUIContext(),
+      notify: (message) => report(message),
+      // OAuth 由系统浏览器和本机回调完成；等待期间不立即返回取消。
+      input: async (_title, _placeholder, options) => {
+        if (!options?.signal) { report('当前客户端尚不支持扩展文本输入窗口'); return undefined; }
+        const signal = this.controller
+          ? AbortSignal.any([options.signal, this.controller.signal]) : options.signal;
+        if (signal.aborted) return undefined;
+        return new Promise<undefined>((resolve) => {
+          signal.addEventListener('abort', () => resolve(undefined), { once: true });
+        });
+      },
+    }, 'rpc');
     runner.onError((error) => report(`扩展 ${error.extensionPath}（${error.event}）：${error.error}`));
     for (const error of loaded.errors) report(`扩展加载失败 ${error.path}：${error.error}`);
     for (const warning of loaded.warnings ?? []) report(`扩展 ${warning.path}：${warning.warning}`);
@@ -141,12 +155,12 @@ export class ClientExtensions {
       compact: unsupported,
       getSystemPrompt: () => this.prompt,
       getSystemPromptOptions: () => this.promptOptions(),
-      getCallableTools: () => [...this.tools.values()],
+      getCallableTools: () => this.callableTools(),
       executeTool: (parentId, name, args, options) => {
         const message = [...agent.state.messages].reverse().find((item) => item.role === 'assistant');
         if (!message || message.role !== 'assistant') throw new Error('嵌套工具调用缺少助手消息');
         return runToolCall({ id: `${parentId}/${++this.nestedCall}`, name, arguments: args as JsonObject, type: 'toolCall' }, {
-          tools: [...this.tools.values()], assistantMessage: message,
+          tools: this.callableTools(), assistantMessage: message,
           context: { messages: agent.state.messages, tools: agent.state.tools },
           signal: options.signal ?? agent.signal ?? this.controller?.signal,
           onUpdate: options.onUpdate,
@@ -283,12 +297,25 @@ export class ClientExtensions {
     return { cwd: this.manager.getCwd(), customPrompt: this.basePrompt, skills: this.resources.getSkills().skills, selectedTools: this.agent.state.tools.map((tool) => tool.name) };
   }
 
+  private callableTools(): AgentTool[] {
+    const definitions = new Map(this.runner.getAllRegisteredTools().map(({ definition }) => [definition.name, definition]));
+    const active = new Set(this.agent.state.tools.map((tool) => tool.name));
+    return [...this.tools.values()].filter((tool) => {
+      const exposure = definitions.get(tool.name)?.exposure ?? 'direct';
+      return exposure === 'codemode' || exposure === 'deferred' || (exposure === 'direct' && active.has(tool.name));
+    });
+  }
+
   refreshTools(baseTools = this.baseTools): void {
     this.baseTools = baseTools;
     const registered = this.runner.getAllRegisteredTools();
     this.tools = new Map(baseTools.map((tool) => [tool.name, tool]));
     for (const tool of wrapRegisteredTools(registered, this.runner)) this.tools.set(tool.name, tool);
     const inactive = new Set(registered.filter(({ definition }) => definition.defaultActive === false || (definition.exposure && !['direct', 'model-only'].includes(definition.exposure))).map(({ definition }) => definition.name));
+    const defaults = new Set([...this.tools.keys()].filter((name) => !inactive.has(name)));
+    // MCP 异步连接会陆续注册工具；已启用 codemode 时也要激活新注册的 direct 工具。
+    for (const name of defaults) if (!this.defaultActiveTools.has(name)) this.activeTools?.add(name);
+    this.defaultActiveTools = defaults;
     this.agent.state.tools = [...this.tools.values()].filter((tool) => this.activeTools ? this.activeTools.has(tool.name) : !inactive.has(tool.name));
   }
 

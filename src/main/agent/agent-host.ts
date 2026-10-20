@@ -6,6 +6,7 @@ import {
 import { listSavedSessions } from '../sessions/catalog.js';
 import { DEFAULT_SYSTEM_PROMPT } from './system-prompt.js';
 import { ClientExtensions } from './extensions.js';
+import { builtinMcpExtensions } from './mcp.js';
 import { join } from 'node:path';
 import { stat, unlink } from 'node:fs/promises';
 import {
@@ -244,6 +245,7 @@ export class AgentHost {
       cwd,
       agentDir: this.agentDir,
       settingsManager: settings,
+      extensionFactories: await builtinMcpExtensions(this.agentDir),
     });
     await resources.reload();
     const systemPrompt = [

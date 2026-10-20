@@ -218,6 +218,12 @@ try {
   await until(async () => (await page.locator('#send').getAttribute('aria-label')) === '发送任务');
   assert.equal(fixture.state.requests, beforeExtension);
   pass('Pi extension loads in Electron main and composer slash command executes without a model request');
+  await page.locator('#prompt').fill('/mcp');
+  await page.locator('#prompt').press('Enter');
+  await until(async () => (await page.locator('#send').getAttribute('aria-label')) === '发送任务');
+  await until(async () => (await page.locator('body').innerText()).includes('No MCP servers configured'));
+  assert.equal(fixture.state.requests, beforeExtension);
+  pass('native MCP status command runs in Electron and displays its real empty configuration');
   await page.locator('#prompt').press('Control+Shift+S');
   await until(async () => {
     try { return (await readFile(join(fixture.project, 'desktop-shortcut.txt'), 'utf8')) === 'KEY_EXECUTED'; }

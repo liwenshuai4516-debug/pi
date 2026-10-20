@@ -72,7 +72,7 @@ test('Pi extensions: real discovery, commands, hooks, tools, permission changes 
   assert.ok(JSON.stringify(fixture.state.toolResults).includes('QA_HOOK_RESULT'));
   assert.ok(JSON.stringify(fixture.state.payloads[0]).includes('QA_EXTENSION_SYSTEM'));
   const events = await readFile(join(fixture.project, 'extension-events.log'), 'utf8');
-  assert.match(events, /tool:真实扩展工具:ui=false/);
+  assert.match(events, /tool:真实扩展工具:ui=true/);
   assert.match(events, /agent_start/);
   assert.match(events, /agent_end/);
   await host.send(view.id, 'WRITE_FIXTURE', [], []);

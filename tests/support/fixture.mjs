@@ -53,7 +53,14 @@ export async function setupFixture() {
         });
         return;
       }
-      if (prompt.includes('INSTALLED_PLUGIN_TOOL') && !hasToolResult) {
+      if ((prompt.includes('MCP_DIRECT_PROOF') || prompt.includes('MCP_CODEMODE_PROOF')) && !hasToolResult) {
+        const codemode = prompt.includes('MCP_CODEMODE_PROOF');
+        send({ tool_calls: [{ index: 0, id: 'mcp-proof', type: 'function', function: {
+          name: codemode ? 'codemode' : 'mcp__postman__echo',
+          arguments: JSON.stringify(codemode ? { code: 'text(await tools.mcp__postman__echo({}));' } : {}),
+        } }] });
+        send({}, 'tool_calls');
+      } else if (prompt.includes('INSTALLED_PLUGIN_TOOL') && !hasToolResult) {
         send({ tool_calls: [{ index: 0, id: 'installed-tool', type: 'function', function: {
           name: 'conversation_read', arguments: '{}',
         } }] });

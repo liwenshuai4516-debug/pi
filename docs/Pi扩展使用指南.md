@@ -27,6 +27,21 @@
 
 全局资源配置使用 Pi settings.json 的 `packages` 和 `skills`，不写入项目配置。本地引用请保留源目录；npm/Git 依赖系统相应命令与网络，缺失时明确报错。当前菜单不提供卸载、升级或 MCP 管理。
 
+## MCP 与 Postman
+
+客户端显式加载 Pi 原生 MCP、codemode、tool-search 扩展，接手 `registerMcpServer()` 注册的服务，支持 HTTP/stdio、工具发现、动态注册与原生 exposure 规则。无需再安装另一个 MCP 桥接插件。全局配置为 `<agentDir>/mcp.json`；项目信任后才加载 `<项目>/.pi/mcp.json`。
+
+安装并启用 `npm:@postman/postman-plugin` 后，新建对话并在输入框发送：
+
+- `/mcp`：查询连接状态和工具数量。
+- `/mcp login postman`：首次使用打开系统浏览器授权；本机回调成功后自动重连。停止按钮可取消浏览器回调等待。当前不支持手动粘贴异机重定向地址。
+- `/mcp reconnect postman`：重新连接。
+- `/mcp logout postman`：退出授权。
+
+`needs sign-in` 表示服务已识别但需要账号授权，与此前“已注册但没有连接器”的警告不同；`connected` 和工具数量表明工具已加载，真实调用结果仍以任务工具输出为准。默认 codemode 曝光通过 codemode 工具调用，不一定逐一显示为模型顶层工具。浏览器未自动打开时，可手动打开会话通知中的登录地址。
+
+OAuth 凭据保存在 `<agentDir>/mcp-auth.json`，连接日志为 `<agentDir>/mcp.log`，不把凭据发送给界面。客户端不会替用户完成 Postman 登录或授权。用户禁用 `builtin:mcp` 或安装替换内置 MCP 的扩展时，沿用 SDK 替换规则，应确认替代连接器可用。
+
 ## 最小示例
 
 保存为 `~/.pi/agent/extensions/qa.ts`：
@@ -86,11 +101,11 @@ export default function (pi: ExtensionAPI) {
 
 以下能力尚未接入，不代表与 Pi 终端运行模式完全兼容：
 
-- 终端自定义 UI、弹窗、通知、渲染器与编辑器。`ctx.hasUI` 为 `false`，扩展应据此跳过交互；SDK 的无 UI 确认默认拒绝。桌面快捷键已转发，但不代表快捷键调用的终端组件也已实现。
+- 终端自定义 UI、弹窗、渲染器与编辑器。运行器提供有限 RPC UI（`ctx.mode=rpc`、`ctx.hasUI=true`）：通知展示在会话提示中，支持带取消信号的浏览器 OAuth 回调等待；不提供通用文本输入，确认仍默认拒绝。桌面快捷键已转发，但不代表快捷键调用的终端组件也已实现。
 - 独立压缩、树导航、通过扩展创建/切换/分支会话和热重载。这些扩展操作仍明确报不支持；注册对应的可选监听器不视为运行失败。
 - 空闲时由扩展定时器或外部事件主动启动任务，以及在 `agent_end` 中安排下一轮任务。
 - 全套工具负载编排（如 `prepareLoadout`）、虚拟模型路由及完整供应商事件链。
-- MCP 连接与管理。扩展资源发现和 MCP 注册仍沿用 SDK 接口；注册 MCP 服务不代表已连接，无连接处理器时会提示。相关能力后续单独接入。
+- MCP 图形管理窗口；当前通过上述 `/mcp` 命令管理连接与登录。
 
 ## 信任与权限
 
@@ -100,4 +115,4 @@ Pi 扩展是主进程内执行的代码，具有当前系统账号权限，可�
 
 ## 验证范围
 
-`tests/agent/extensions.test.mjs` 使用临时配置和真实 SDK 验证发现、命令、模型调用工具、提示词与输入钩子、拦截、权限切换后工具保留、错误可见、信任、取消、关闭与恢复，以及轮次投影、续跑、停止后的 settled 状态、模型事件和分支取消。`tests/electron/flow.mjs` 验证真实桌面输入框能执行扩展命令和快捷键，并保护客户端保留键、输入法和长按。`tests/plugins/install.test.mjs` 与 Electron 流程实际安装本地 Pi 包和 Skill，验证新会话加载、模型工具调用写文件、Skill 提示注入与显式调用、读取附带文件、只读边界及重启恢复。受控模型协议服务不证明所有第三方扩展、npm/Git 网络来源、外部模型账号或 MCP 已验证。
+`tests/agent/extensions.test.mjs` 使用临时配置和真实 SDK 验证发现、命令、模型调用工具、提示词与输入钩子、拦截、权限切换后工具保留、错误可见、信任、取消、关闭与恢复，以及轮次投影、续跑、停止后的 settled 状态、模型事件和分支取消。`tests/electron/flow.mjs` 验证真实桌面输入框能执行扩展命令和快捷键，并保护客户端保留键、输入法和长按。`tests/plugins/install.test.mjs` 与 Electron 流程实际安装本地 Pi 包和 Skill，验证新会话加载、模型工具调用写文件、Skill 提示注入与显式调用、读取附带文件、只读边界及重启恢复。受控模型协议服务不证明所有第三方扩展、npm/Git 网络来源、外部模型账号或 Postman 账号授权后的业务 API 已验证。`tests/agent/mcp.test.mjs` 使用真实本地 MCP 协议服务验证扩展注册、直接/codemode/混合曝光的实际工具执行和状态查询。
