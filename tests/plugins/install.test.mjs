@@ -29,7 +29,7 @@ test('installed Pi package and Skill execute through real Agent; skill assets st
   await host.send(view.id, '/skill:installed-skill SKILL_INVOKED', [], []);
   assert.match(fixture.state.instructions.at(-1), /SKILL_INSTALL_PROOF/);
   assert.match(fixture.state.instructions.at(-1), /SKILL_INVOKED/);
-  await assert.rejects(host.send(view.id, '/skill:missing-name', [], []), /未找到 Skill/);
+  await assert.rejects(host.send(view.id, '/skill:missing-name', [], []), /未找到技能/);
   fixture.state.skillPath = join(skillDir, 'SKILL.md');
   await host.send(view.id, 'READ_INSTALLED_SKILL', [], []);
   assert.match(JSON.stringify(fixture.state.toolResults.at(-1)), /SKILL_INSTALL_PROOF/);
@@ -71,7 +71,7 @@ test('plugin and Skill switches persist native Pi filters and change actual new 
   const disabled = await host.create(fixture.project, true);
   assert.ok(!disabled.extensions.includes(extension.path));
   assert.ok(!disabled.skills.some((item) => item.path === skill.path));
-  await assert.rejects(host.send(disabled.id, '/skill:installed-skill', [], []), /未找到 Skill/);
+  await assert.rejects(host.send(disabled.id, '/skill:installed-skill', [], []), /未找到技能/);
   await plugins.setEnabled(extension.path, 'extension', true);
   await plugins.setEnabled(skill.path, 'skill', true);
   const enabled = await host.create(fixture.project, true);

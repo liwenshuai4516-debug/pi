@@ -75,7 +75,7 @@ export class McpManager {
       } } });
       if (failure) throw new Error(failure);
     } else if (entry.scope === 'extension') {
-      if (action === 'remove') throw new Error('此服务由扩展注册，请在 Packages 中管理对应扩展');
+      if (action === 'remove') throw new Error('此服务由扩展注册，请在资源包中管理对应扩展');
       const registry = this.resources.getExtensions().runtime.mcpServers;
       const registered = registry.get(name)!;
       registry.register({ ...registered, config: { ...registered.config,

@@ -66,14 +66,14 @@ export class PluginManager {
       const { settings, packages } = this.context();
       source = source.trim();
       if (kind === 'skill') {
-        if (!isAbsolute(source)) throw new Error('本地 Skill 请使用完整目录路径，远程 Skill 请作为 Pi 资源包安装');
+        if (!isAbsolute(source)) throw new Error('本地技能 请使用完整目录路径，远程技能 请作为 Pi 资源包安装');
         const path = await realpath(source);
         const directory = (await stat(path)).isDirectory() ? path : undefined;
         if (!directory || !(await stat(join(directory, 'SKILL.md'))).isFile())
-          throw new Error('请选择包含 SKILL.md 的 Skill 目录');
+          throw new Error('请选择包含 SKILL.md 的技能目录');
         const result = loadSkillsFromDir({ dir: directory, source: 'user' });
         if (!result.skills.length || result.diagnostics.some((item) => item.type === 'error'))
-          throw new Error(result.diagnostics.map((item) => item.message).join('\n') || 'Skill 格式无效');
+          throw new Error(result.diagnostics.map((item) => item.message).join('\n') || '技能格式无效');
         settings.setSkillPaths([...new Set([...settings.getSkillPaths(), path])]);
       } else {
         await packages.installAndPersist(source);

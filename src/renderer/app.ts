@@ -1,3 +1,4 @@
+import { describeInChinese } from '../shared/descriptions-zh.js';
 import { bindModelSelection } from './features/models/selection.js';
 import {
   bindWorkspacePermission,
@@ -146,7 +147,7 @@ function renderView(): void {
     ? templates
         .map(
           (template) =>
-            `<button class="template-choice" data-template="${escape(template.name)}">/${escape(template.name)}<small>${escape(template.description)}</small></button>`,
+            `<button class="template-choice" data-template="${escape(template.name)}">/${escape(template.name)}<small>${escape(describeInChinese(template.description))}</small></button>`,
         )
         .join('')
     : '<p>尚无提示模板。Pi 已配置的提示模板会显示在这里。</p>';

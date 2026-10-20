@@ -12,6 +12,7 @@ await mkdir(join(fixture.agentDir, 'extensions'));
 await writeFile(join(fixture.agentDir, 'extensions', 'desktop.ts'), `
 import { writeFileSync, appendFileSync } from 'node:fs';
 export default (pi) => {
+  pi.registerCommand('curator', {description: 'Toggle or configure the search curator workflow', handler: () => {}});
   pi.registerCommand('desktop-extension', {
     handler: (_, ctx) => writeFileSync(ctx.cwd + '/desktop-extension.txt', 'EXTENSION_EXECUTED'),
   });
@@ -231,8 +232,16 @@ try {
   await page.locator('#prompt').fill('/');
   await page.locator('#slash-list [role=option]').first().waitFor();
   assert.ok(await page.locator('#slash-list').getByText('/mcp', {exact: true}).count());
+  await page.locator('#slash-list').getByText('开启、关闭或配置搜索结果整理工作流', {exact:true}).waitFor();
+  await page.locator('#slash-list').getByText('管理 MCP 服务器：登录、重连、开启或关闭服务，以及调整工具使用方式', {exact:true}).waitFor();
   assert.ok(await page.locator('#slash-list').getByText('/desktop-extension', {exact: true}).count());
   await page.screenshot({ path: join(evidence, 'slash-commands.png') });
+  await page.locator('#prompt').fill('/整理');
+  await page.locator('#slash-list').getByText('/curator', {exact:true}).click();
+  assert.equal(await page.locator('#prompt').inputValue(), '/curator ');
+  assert.equal(fixture.state.requests, beforeExtension);
+  await page.locator('#prompt').fill('/');
+  await page.locator('#slash-list [role=option]').first().waitFor();
   await page.locator('#prompt').press('Meta+a');
   assert.equal(await page.locator('#slash-menu').isVisible(), false);
   await page.locator('#prompt').press('End');
@@ -646,7 +655,7 @@ try {
   await finalPage.locator('#prompt').press('Enter');
   await until(async () => (await finalPage.locator('#send').getAttribute('aria-label')) === '发送任务');
   assert.match(fixture.state.instructions.at(-1), /SKILL_INSTALL_PROOF/);
-  await finalPage.locator('.skill-invocation').filter({ hasText: '使用 Skill · installed-skill' }).waitFor();
+  await finalPage.locator('.skill-invocation').filter({ hasText: '使用技能 · installed-skill' }).waitFor();
   assert.match(JSON.stringify(fixture.state.payloads.at(-1)), /INSTALL_SKILL_DESCRIPTION/);
   await finalPage.locator('#plugins-button').click();
   await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
@@ -693,7 +702,7 @@ try {
   await until(async () => (await finalPage.locator('#send').getAttribute('aria-label')) === '发送任务');
   await finalPage.locator('#plugins-button').click();
   await until(async () => !(await finalPage.locator('#install-plugin').isDisabled()));
-  for (const [id, name] of [['plugins-tab', 'Packages'], ['skills-tab', 'Skills'], ['mcp-tab', 'MCP Servers']]) {
+  for (const [id, name] of [['plugins-tab', '资源包'], ['skills-tab', '技能'], ['mcp-tab', 'MCP 服务器']]) {
     assert.match(await finalPage.locator(`#${id}`).innerText(), new RegExp(name));
   }
   await finalPage.locator('#mcp-tab').click();

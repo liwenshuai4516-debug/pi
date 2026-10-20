@@ -1,3 +1,4 @@
+import { describeInChinese } from '../../shared/descriptions-zh.js';
 import {
   Agent, runToolCall, type AgentEvent, type AgentMessage, type AgentTool,
 } from '@earendil-works/pi-agent-core';
@@ -288,7 +289,7 @@ export class ClientExtensions {
       const items = await command?.getArgumentCompletions?.(match[2]);
       return (items ?? []).map((item) => ({
         value: `/${match[1]} ${item.value}`, label: item.label,
-        description: item.description ?? '', kind: match[1] === 'mcp' ? 'service' : 'command',
+        description: describeInChinese(item.description ?? ''), kind: match[1] === 'mcp' ? 'service' : 'command',
       }));
     }
     if (!/^\/[^\s]*$/.test(prefix)) return [];
@@ -306,8 +307,9 @@ export class ClientExtensions {
     }
     for (const template of this.resources.getPrompts().prompts) add(template.name, template.description, 'template');
     const query = prefix.slice(1).toLocaleLowerCase();
-    return [...items.values()].filter((item) => `${item.label} ${item.description}`.toLocaleLowerCase().includes(query))
-      .sort((a, b) => Number(!a.label.slice(1).toLocaleLowerCase().startsWith(query)) - Number(!b.label.slice(1).toLocaleLowerCase().startsWith(query)) || a.label.localeCompare(b.label));
+    return [...items.values()].filter((item) => `${item.label} ${item.description} ${describeInChinese(item.description)}`.toLocaleLowerCase().includes(query))
+      .sort((a, b) => Number(!a.label.slice(1).toLocaleLowerCase().startsWith(query)) - Number(!b.label.slice(1).toLocaleLowerCase().startsWith(query)) || a.label.localeCompare(b.label))
+      .map(item => ({ ...item, description: describeInChinese(item.description) }));
   }
 
   async shortcut(key: string): Promise<void> {
@@ -391,9 +393,9 @@ export class ClientExtensions {
       if (input.action === 'transform') { text = input.text; images = input.images ?? images; }
       const skillCommand = /^\/skill:([^\s]+)(?:\s+([\s\S]*))?$/.exec(text);
       if (skillCommand) {
-        if (!this.settings.getEnableSkillCommands()) throw new Error('当前 Pi 配置已关闭 Skill 命令');
+        if (!this.settings.getEnableSkillCommands()) throw new Error('当前 Pi 配置已关闭技能命令');
         const skill = this.resources.getSkills().skills.find((item) => item.name === skillCommand[1]);
-        if (!skill) throw new Error(`未找到 Skill：${skillCommand[1]}`);
+        if (!skill) throw new Error(`未找到技能：${skillCommand[1]}`);
         const content = stripFrontmatter(await readFile(skill.filePath, 'utf8')).trim();
         text = `<skill name="${skill.name}" location="${skill.filePath}">
 References are relative to ${skill.baseDir}.

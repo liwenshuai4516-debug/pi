@@ -1,3 +1,4 @@
+import { describeInChinese } from '../../../shared/descriptions-zh.js';
 import type { PluginInventory, SessionView } from '../../../shared/types.js';
 import { el, escape } from '../../shared/dom.js';
 import { bindMcpPanel } from './mcp.js';
@@ -53,7 +54,7 @@ export function bindPlugins(getView: () => SessionView | null, activate: () => P
       ? inventory.extensions.map((item) => `<li><div class="resource-info"><strong>${escape(item.source === 'local' || item.source === 'auto' ? item.name : item.source)}</strong><small>${escape(item.path)}</small>${loaded(!!view?.extensions.includes(item.path))}</div>${toggle(item, 'extension')}</li>`).join('')
       : '<li class="resource-empty">暂无插件，点击下方安装入口添加。</li>';
     el('plugin-skills').innerHTML = inventory.skills.length
-      ? inventory.skills.map((item) => `<li><div class="resource-info"><strong>${escape(item.name)}</strong><p>${escape(item.description)}</p><small>来源：${escape(item.source === 'auto' || item.source === 'local' ? '用户技能目录' : item.source)}</small><small>${escape(item.path)} · /skill:${escape(item.name)}</small>${loaded(!!view?.skills.some((skill) => skill.path === item.path))}</div>${toggle(item, 'skill')}</li>`).join('')
+      ? inventory.skills.map((item) => `<li><div class="resource-info"><strong>${escape(item.name)}</strong><p>${escape(describeInChinese(item.description))}</p><small>来源：${escape(item.source === 'auto' || item.source === 'local' ? '用户技能目录' : item.source)}</small><small>${escape(item.path)} · /skill:${escape(item.name)}</small>${loaded(!!view?.skills.some((skill) => skill.path === item.path))}</div>${toggle(item, 'skill')}</li>`).join('')
       : '<li class="resource-empty">暂无技能，可导入包含 SKILL.md 的目录。</li>';
     el('plugin-diagnostics').textContent = inventory.diagnostics.join('\n');
     el('plugin-diagnostics').hidden = !inventory.diagnostics.length;

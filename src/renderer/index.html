@@ -265,7 +265,7 @@
               required
           /></label>
           <label
-            >模型 ID<input name="modelId" placeholder="填写提供商提供的模型 ID" required
+            >模型标识<input name="modelId" placeholder="填写提供商提供的模型标识" required
           /></label>
           <label class="checkbox-label"
             ><input name="reasoning" type="checkbox" />此模型支持可调思考强度</label
@@ -274,7 +274,7 @@
             请按供应商能力配置。勾选后可在输入框底部选择强度，具体级别由 Pi SDK 决定。
           </p>
           <label
-            >API Key<input
+            >接口密钥<input
               name="apiKey"
               type="password"
               placeholder="仅用于连接模型，不会显示在会话中"
@@ -342,19 +342,19 @@
       </div>
       <div class="plugin-layout">
         <nav class="plugin-nav" aria-label="扩展分类">
-          <button id="plugins-tab" type="button" aria-pressed="true" aria-controls="plugins-pane"><span class="plugin-tab-title">资源包<small>Packages</small></span><span id="plugins-count">0</span></button>
-          <button id="skills-tab" type="button" aria-pressed="false" aria-controls="skills-pane"><span class="plugin-tab-title">技能<small>Skills</small></span><span id="skills-count">0</span></button>
-          <button id="mcp-tab" type="button" aria-pressed="false" aria-controls="mcp-pane"><span class="plugin-tab-title">MCP 服务器<small>MCP Servers</small></span><span id="mcp-count">—</span></button>
+          <button id="plugins-tab" type="button" aria-pressed="true" aria-controls="plugins-pane"><span class="plugin-tab-title">资源包<small>分发与安装</small></span><span id="plugins-count">0</span></button>
+          <button id="skills-tab" type="button" aria-pressed="false" aria-controls="skills-pane"><span class="plugin-tab-title">技能<small>任务方法</small></span><span id="skills-count">0</span></button>
+          <button id="mcp-tab" type="button" aria-pressed="false" aria-controls="mcp-pane"><span class="plugin-tab-title">MCP 服务器<small>工具连接</small></span><span id="mcp-count">—</span></button>
           <p>资源包分发能力，技能指导任务，MCP 连接外部工具。</p>
         </nav>
         <div class="plugin-content">
           <section id="plugins-pane" class="resource-section" aria-labelledby="plugins-tab">
-            <h3>资源包 · Packages</h3><p class="plugin-intro">从 npm、Git 或本地安装，可包含扩展代码、技能、提示模板和主题。更新或移除后，新建对话加载。</p>
+            <h3>资源包</h3><p class="plugin-intro">从 npm、Git 或本地安装，可包含扩展代码、技能、提示模板和主题。更新或移除后，新建对话加载。</p>
             <ul id="plugin-packages" class="resource-list"></ul>
-            <details class="package-details" open><summary>扩展代码 · Extensions</summary><p class="path-note">资源包中的扩展与独立扩展列在这里；开关仅控制该扩展，新建对话后生效。</p><ul id="plugin-extensions" class="resource-list"></ul></details>
+            <details class="package-details" open><summary>扩展代码</summary><p class="path-note">资源包中的扩展与独立扩展列在这里；开关仅控制该扩展，新建对话后生效。</p><ul id="plugin-extensions" class="resource-list"></ul></details>
           </section>
           <section id="skills-pane" class="resource-section" aria-labelledby="skills-tab" hidden>
-            <h3>技能 · Skills</h3><p class="plugin-intro">以 SKILL.md 定义任务方法，可来自资源包或独立目录；开启后新建对话使用，也可通过 /skill:名称 调用。</p>
+            <h3>技能</h3><p class="plugin-intro">以 SKILL.md 定义任务方法，可来自资源包或独立目录；开启后新建对话使用，也可通过 /skill:名称 调用。</p>
             <ul id="plugin-skills" class="resource-list"></ul>
           </section>
           <section id="mcp-pane" class="resource-section" aria-labelledby="mcp-tab" hidden>
@@ -375,15 +375,15 @@
         <form id="plugin-form">
           <label for="plugin-kind">安装类型</label>
           <select id="plugin-kind">
-            <option value="package">Pi 资源包（插件 / Skill）</option>
-            <option value="skill">本地 Skill</option>
+            <option value="package">Pi 资源包（插件 / 技能）</option>
+            <option value="skill">本地技能</option>
           </select>
           <label for="plugin-source">安装来源</label>
           <div class="plugin-source-row">
             <input id="plugin-source" required autocomplete="off" placeholder="npm:包名、Git 地址或本地资源包路径" />
             <button id="choose-plugin-source" class="secondary-button" type="button">选择目录</button>
           </div>
-          <p class="path-note">Pi 资源包支持 npm、Git 和本地目录。本地 Skill 引用原目录，请保留其文件。仅安装你信任的插件。</p>
+          <p class="path-note">Pi 资源包支持 npm、Git 和本地目录。本地技能 引用原目录，请保留其文件。仅安装你信任的插件。</p>
           <div class="plugin-actions">
             <button id="install-plugin" class="primary-button" type="submit">安装</button>
           </div>

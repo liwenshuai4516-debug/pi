@@ -363,7 +363,7 @@ export class AgentHost {
       await entry.extensions.start(context.messages.length ? 'resume' : 'new');
       entry.extensions.refreshTools(await createWorkspaceTools(cwd, permission, resources.getSkills().skills.map((skill) => skill.baseDir)));
       for (const diagnostic of resources.getSkills().diagnostics)
-        warnings.add(`Skill：${diagnostic.message}`);
+        warnings.add(`技能：${diagnostic.message}`);
       entry.warning = [...warnings].join('\n') || null;
       if (entry.hasModel) await entry.extensions.runner.emit({
         type: 'model_select', model: agent.state.model, previousModel: undefined, source: 'restore',

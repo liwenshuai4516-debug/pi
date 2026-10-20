@@ -14,7 +14,7 @@ const markdown = (text: string): string =>
 function renderUserText(text: string | undefined): string {
   const skill = /^<skill name="([^"]+)" location="[^"]+">[\s\S]*<\/skill>\s*([\s\S]*)$/.exec(text ?? '');
   return skill
-    ? `<span class="skill-invocation">使用 Skill · ${escape(skill[1])}</span>${escape(skill[2])}`
+    ? `<span class="skill-invocation">使用技能 · ${escape(skill[1])}</span>${escape(skill[2])}`
     : escape(text);
 }
 
