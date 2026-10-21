@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "environment_id": "local-test",
+  "deployment_version": "replace-with-deployment-id",
+  "base_url": "http://127.0.0.1:3000",
+  "role": "tester",
+  "identity": { "selector": "[data-testid=active-role]", "text": "tester" },
+  "initial_state": { "selector": "h1", "text": "Names" },
+  "auth": { "kind": "storage-state-env", "reference": "PI_UI_STORAGE_STATE" },
+  "isolation": "context",
+  "timeout_ms": 10000
+}

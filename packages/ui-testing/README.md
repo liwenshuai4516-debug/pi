@@ -1,6 +1,6 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.0，已实现 UI-02 的产物契约与 UI-03 的本地持久化入口。录制/执行兼容性已由 UI-01 验证，完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；本包还不能正式审批资产或执行测试。
+当前版本 0.1.0，已实现 UI-02 的产物契约、UI-03 的本地持久化及 UI-04 的环境/数据 fixture。录制/执行兼容性已由 UI-01 验证，完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；本包还不能正式审批资产或执行测试。
 
 ## 使用
 
@@ -49,3 +49,45 @@ node packages/ui-testing/dist/cli.js store-load /path/to/ref.json /path/to/proje
 `updateTask(expectedRef, next)` 使用摘要比较后更新，冻结意图、输入、资产与已登记批次，不允许阶段回退。`reserveRun` 先登记启动意图，同一 request_id 和相同输入返回原批次；输入不同或存在未核对批次则阻塞。`markRunStarted` 登记 PID 与进程令牌，`finishRun` 保留退出码和输出引用。中断批次保留活跃登记，UI-11 前不自动续跑。上述 API 只管理状态，不启动进程，也不证明设计已获批；正式执行门禁由 UI-06/UI-07 实现。
 
 复用 `proper-lockfile` 4.1.2（MIT）协调单项目元数据写入，使用文件同步和原子替换提交 manifest；不建设数据库或另一套会话存储。面向项目本地文件系统，不宣称支持网络文件系统或操作系统断电恢复。`tests/ui-testing/store.test.mjs` 覆盖独立进程读取、索引损坏重建、半成品、摘要失效、并发启动和任务版本冲突。
+
+## 环境与数据 fixture（UI-04）
+
+[环境模板](examples/environment.json) 声明站点、角色、身份探针和初始状态。`auth.reference` 是环境变量名称；变量值指向私有 Playwright storageState 文件，文件内容不纳入资产。匿名环境使用 `{"kind":"none"}`。认证文件由既有登录流程生成，本包不自建登录器；每次执行仍从页面验证身份，文件可解析不等于登录有效。部署版本由调用方提供，当前 fixture 不据此声称已验证服务端部署版本。
+
+被测项目将本包作为本地开发依赖安装后，从 `pi-ui-testing/fixtures` 导入 `test/expect`（也可使用包中 `dist/fixtures.js` 的实际路径）；Playwright 使用锁定的 `@playwright/test` 1.62.1。Pi 包安装负责 Agent 资源，不自动改变被测项目的 npm 依赖或 Playwright 配置。
+
+```ts
+import { test, expect } from 'pi-ui-testing/fixtures';
+import environment from './environment.json' with { type: 'json' };
+
+test.use({ uiEnvironment: environment, uiProjectRoot: process.cwd(),
+  uiOwner: { task_id: 'task-1', kind: 'run', id: 'run-1' } });
+
+test('保存名称', async ({ page, uiData }) => {
+  const row = await uiData.prepare({
+    creation_method: 'ui', fixture_version: '1', ttl_ms: 3600000,
+    cleanup_method: 'owned-localStorage-key',
+    create: async key => {
+      await page.getByRole('textbox', { name: 'Name' }).fill(key);
+      await page.getByRole('button', { name: 'Save' }).click();
+      return key;
+    },
+    cleanup: async key => {
+      await page.evaluate(key => {
+        const rows = JSON.parse(localStorage.getItem('names') || '[]');
+        localStorage.setItem('names', JSON.stringify(rows.filter(value => value !== key)));
+      }, key);
+    },
+  });
+  await page.reload();
+  await expect(page.getByRole('listitem')).toHaveText(row.business_key);
+});
+```
+
+以上示例用于模板页面，实际测试应复用项目自己的准备/清理 fixture。服务端返回独立对象 ID 时用 `identify(value)` 登记非敏感 ID，清理回调仍须以已登记业务键确认归属。没有安全删除方法时声明 `retain_reason`，保留残留；不扫描或删除其他数据。数据创建失败同样保留 preparing/prepare-failed 记录并尝试清理。过期时间只用于提示，不触发自动删除。
+
+Playwright 原生 context 隔离浏览器状态；命名空间区分每次尝试的数据，但不能自动隔离服务端共享账号。不能隔离时设 `isolation: shared`，运行配置使用 `workers: 1` 且不分片，fixture 还获取同一项目下的环境资源锁；不同被测项目之间须复用团队已有资源调度，不宣称跨项目锁定。
+
+前置失败输出 `ui-preflight` 附件，类别为 precondition，业务主体不执行；UI-07/UI-08 负责将此失败与业务断言失败区分统计。数据事件持久化到对应 run/recording 的 `data/`，teardown 输出 `ui-data-lifecycle` 附件，清理失败保留原因码和残留，业务通过/失败不被覆盖。受控取消、断言失败和超时使用 Playwright teardown；强制杀死进程不保证清理完成，未完成记录留待核对。原始截图、trace 和业务回调错误可能含敏感信息，应按项目证据规则控制访问和脱敏，不能因普通生命周期记录无凭据就声称所有证据均无秘密。
+
+`tests/ui-testing/environment.test.mjs` 使用真实 Chromium、真实 Playwright runner 验证独立上下文、业务失败/清理失败、取消、有效及失效认证状态；数据归属、保留与锁使用额外确定性检查。

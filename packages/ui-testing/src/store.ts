@@ -168,6 +168,17 @@ export class ArtifactStore {
   }
   async reindex(): Promise<Catalog> { return this.locked(() => this.catalog()); }
 
+  async acquireResource(name: string): Promise<() => Promise<void>> {
+    const root = await this.directory(prefix);
+    try {
+      return await lockfile.lock(root, { realpath: true, retries: 0,
+        lockfilePath: join(root, `.resource-${sha256(name)}.lock`) });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ELOCKED') throw error;
+      throw new WorkflowError('precondition', '共享测试资源已有任务占用');
+    }
+  }
+
   async updateTask(expected: FileRef, next: Artifact<'task'>): Promise<FileRef> {
     return this.locked(async () => {
       const previous = await this.load(expected, false);

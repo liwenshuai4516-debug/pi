@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Pi UI 测试工作流的项目规则、产物契约与必要适配",
-  "exports": "./dist/index.js",
+  "exports": { ".": "./dist/index.js", "./fixtures": "./dist/fixtures.js" },
   "files": ["dist", "skills", "examples"],
   "pi": { "extensions": ["./dist/extension.js"], "skills": ["./skills"] },
   "dependencies": { "ajv": "8.17.1", "proper-lockfile": "4.1.2" },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "1.2.0", "typebox": "*" }
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "1.2.0", "typebox": "*", "@playwright/test": "1.62.1" }
 }
