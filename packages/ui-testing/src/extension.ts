@@ -1,9 +1,12 @@
 import { Type } from 'typebox';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { RecordingService, recordingStartSchema, fileRefSchema, schemas, validateArtifact,
-  WorkflowError, type Artifact, type CapabilityResult } from './index.js';
+import { RecordingService, recordingStartSchema } from './recording.js';
+import { fileRefSchema, schemas, type Artifact, type CapabilityResult } from './contracts.js';
+import { validateArtifact, WorkflowError } from './validation.js';
+import { registerDesignTools } from './design-extension.js';
 
 export default function (pi: ExtensionAPI) {
+  registerDesignTools(pi);
   let activeBackend: string | undefined;
   let activeSession: import('./contracts.js').FileRef | undefined;
   pi.on('tool_call', event => {

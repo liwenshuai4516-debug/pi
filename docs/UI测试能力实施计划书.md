@@ -68,7 +68,7 @@ P0 是首个可用版本的必需项；P1 在 P0 闭环可重复运行后增强�
 | UI-03 | P0 | 资产、任务和批次持久化 | UI-02 | 已完成 |
 | UI-04 | P0 | 环境、认证引用及测试数据生命周期 | UI-02 | 已完成 |
 | UI-05 | P0 | 发现模块并自动录制 | UI-03、UI-04 | 已完成 |
-| UI-06 | P0 | 用例、断言生成及设计评估门禁 | UI-05 | 未开始 |
+| UI-06 | P0 | 用例、断言生成及设计评估门禁 | UI-05 | 进行中 |
 | UI-07 | P0 | 正式执行与原始证据采集 | UI-06 | 未开始 |
 | UI-08 | P0 | 确定性统计、归因和结果评估 | UI-07 | 未开始 |
 | UI-09 | P0 | 按需 Skill 组合与重启复用 | UI-08 | 未开始 |
@@ -243,6 +243,7 @@ P0 是首个可用版本的必需项；P1 在 P0 闭环可重复运行后增强�
 | UI-03 | 已完成 / 2026-10-21 | `ArtifactStore`、不可变附件/修订、任务与批次登记、CLI 存取/索引入口、包说明的持久化样例 | `tests/ui-testing/store.test.mjs`：独立进程读取资产/评估、半成品不可加载、索引损坏重建、脚本/fixture 摘要变化、并发重复请求及输入冲突、终态及中断阻断 | 复用 proper-lockfile 4.1.2 和 Node 文件 API，仅新增业务身份/摘要/阶段关联；正式审批/执行留待 UI-06/UI-07，自动恢复留待 UI-11 |
 | UI-04 | 已完成 / 2026-10-21 | 环境模板、私有 storageState 引用、Playwright 原生 fixture、前置检查附件、数据归属/准备/清理事件及残留 | `tests/ui-testing/environment.test.mjs`：真实 Chromium/runner 验证独立数据、断言失败清理、清理残留、SIGINT 取消、有效/失效认证；确定性检查归属与共享资源锁 | 复用 Playwright Test 1.62.1 的 context/fixture/expect/附件/teardown，proper-lockfile 提供项目内资源锁；不自建登录器；跨项目共享调度、强杀进程恢复及正式业务结果统计未在此阶段实现 |
 | UI-05 | 已完成 / 2026-10-21 | `ui-discover-record` Skill、`ui_discover_record` 工具、RecordingService、带来源 inventory/source-only 草稿、原始请求/观察/日志、完整或 partial recording | `tests/ui-testing/recording.test.mjs`：真实 Pi/原生 MCP/Chromium 交互、UI-04 seed 清理、持久化重读与参数化草稿回放；实际源码读取和草稿保存无浏览器动作；预算/无进展/重复请求/未知副作用/临时定位与固定数据负例 | 复用 Pi executeTool、原生工具/资源及 Playwright 1.62.1 测试 MCP，仅增业务记录和限额；受控协议模型不替代 UI-10 的模型质量验收；修正 proper-lockfile 资源目标与元数据写锁重叠并补回归 |
+| UI-06 | 进行中 / 2026-10-21 | `ui-case-design`、`ui-design-review` Skills 与工具，TypeScript 编译/依赖及 case/assertion 映射检查，独立 Agent 评估、原始输入/响应、私有批准登记与预算 | `tests/ui-testing/design.test.mjs` 覆盖静态负例、独立 Agent 无生成者历史/工具、引用真实性、伪造批准拒绝、修订重评、预算与摘要失效；验证结果以执行记录为准 | 复用 TypeScript 5.9.3 compiler API、Pi Agent/模型注册表、Ajv 和 proper-lockfile；仅补业务关联与门禁。设计批准可验证，运行门禁仍明确拒绝；真实定位诊断、隔离错误结果下的断言自检及运行就绪登记尚未完成，不作为 UI-07 正式执行授权 |
 
 可直接复制的后续任务指令：
 

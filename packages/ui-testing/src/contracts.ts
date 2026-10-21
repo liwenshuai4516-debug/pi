@@ -16,10 +16,15 @@ const issue = object({ id, rule: Type.String({ pattern: '^(D(?:10|[1-9])|R[1-6])
   evidence_refs: refs, fix_condition: Type.String({ minLength: 1 }), blocking: Type.Boolean() });
 const reviewer = object({ context_id: id, model_provider: Type.String(), model_id: Type.String(),
   isolation: enumOf(['separate-agent', 'separate-session']) });
+export const assessmentCheckSchema = object({ rule: Type.String({ pattern: '^D(?:10|[1-9])$' }),
+  verdict: enumOf(['pass', 'fail', 'not-applicable']), reason: Type.String({ minLength: 1 }),
+  evidence: Type.Array(object({ ref: fileRefSchema, quote: Type.String({ minLength: 1 }) }), { minItems: 1 }) });
 const assessment = {
   subject_ref: fileRefSchema, subject_sha256: digest, round: Type.Integer({ minimum: 1, maximum: 3 }),
   decision: enumOf(['approved', 'revise', 'blocked']), rules_version: Type.String({ minLength: 1 }),
   reviewer, checked_rules: Type.Array(Type.String({ pattern: '^(D(?:10|[1-9])|R[1-6])$' })), issues: Type.Array(issue), raw_ref: fileRefSchema,
+  checks: Type.Optional(Type.Array(assessmentCheckSchema)), improvement: Type.Optional(enumOf(['first', 'improved', 'none'])),
+  previous_review_ref: Type.Optional(fileRefSchema), static_ref: Type.Optional(fileRefSchema), input_ref: Type.Optional(fileRefSchema),
 };
 const assertion = object({ assertion_id: id, step_id: id, source_id: id, oracle_type: oracle,
   target: Type.String({ minLength: 1 }), comparison: Type.String({ minLength: 1 }), expected: Type.Unknown(),
@@ -54,6 +59,9 @@ const bodies = {
     data_rules_ref: fileRefSchema, gaps: strings }),
   asset: object({ revision: id, module_ids: Type.Array(id, { minItems: 1 }), scope_ref: fileRefSchema,
     cases_ref: fileRefSchema, recording_refs: refs, files: Type.Array(fileRefSchema, { minItems: 1 }),
+    inventory_ref: Type.Optional(fileRefSchema),
+    bindings: Type.Optional(Type.Array(object({ case_id: id, script_ref: fileRefSchema,
+      test_title: Type.String({ minLength: 1 }), assertion_ids: Type.Array(id, { minItems: 1 }) }))),
     dependencies: Type.Array(object({ name: Type.String({ minLength: 1 }), version: Type.String({ minLength: 1 }) })),
     readiness: enumOf(['design-only', 'runtime-verified']), content_sha256: digest, gaps: strings }),
   'design-review': object(assessment),
@@ -110,4 +118,12 @@ export const capabilities = [{ capability_id: 'ui-validate-artifact', capability
   side_effects: 'project-files-and-browser-actions', safe_to_repeat: false,
   requires: { pi: '1.2.0', schema: '1.0', playwright: '1.62.1' },
   errors: ['invalid-input', 'missing-capability', 'precondition', 'cancelled'],
+}, { capability_id: 'ui-case-design', capability_version: '0.1.0',
+  input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_case_design',
+  side_effects: 'project-files', safe_to_repeat: true, requires: { pi: '1.2.0', schema: '1.0', typescript: '5.9.3' },
+  errors: ['invalid-input', 'precondition', 'incompatible-version'],
+}, { capability_id: 'ui-design-review', capability_version: '0.1.0',
+  input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_design_review',
+  side_effects: 'model-call-and-review-records', safe_to_repeat: false, requires: { pi: '1.2.0', schema: '1.0' },
+  errors: ['invalid-input', 'precondition', 'review-rejected', 'cancelled'],
 }];
