@@ -5,16 +5,32 @@ import { join, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { Agent } from '@earendil-works/pi-agent-core';
 import { ModelRuntime, convertToLlm } from '@earendil-works/pi-coding-agent';
-import { ResultReviewService, collectResults, saveAnalysis } from '../../packages/ui-testing/dist/index.js';
+import { ResultReviewService, collectResults, saveAnalysis, traceEvidence } from '../../packages/ui-testing/dist/index.js';
 import { resultFixture, resultDecision, resultResponse } from '../support/ui-result-fixture.mjs';
 import { copyLiveModel, repoRoot, textContent } from '../support/ui-fixture.mjs';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
 import { AgentHost } from '../../dist/main/agent/agent-host.js';
 
 test('UI-08: real failure with unknown root is reviewable; rejection/correction preserve history and trusted delivery',{timeout:60000},async t=>{
-  const d=await resultFixture(t),{f,report_ref,make,execution}=d,reviewer=new ResultReviewService(f.root,f.authority);
+  const d=await resultFixture(t),{f,make,execution}=d,reviewer=new ResultReviewService(f.root,f.authority);
+  const traceRef=execution.run.data.output_refs.find(r=>r.path.endsWith('/trace.zip'));
+  const {report_ref}=await make('trace-cited',a=>a.data.findings[0].supporting_refs.push(traceRef));
+  const originalReport=await f.store.load(report_ref);
+  const events=await traceEvidence(f.root,originalReport.data.results_ref,traceRef);
+  assert.deepEqual(events.source_ref,traceRef);assert.equal(events.owners.length,1);
+  assert.ok(events.events.some(e=>e.event.type==='before'));
+  assert.ok(events.events.some(e=>e.event.type==='after'));
+  const originalTrace=await readFile(join(f.root,traceRef.path));
+  await assert.rejects(traceEvidence(f.root,originalReport.data.results_ref,{...traceRef,sha256:'a'.repeat(64)}),/本批次/);
+  await writeFile(join(f.root,traceRef.path),'forged');
+  await assert.rejects(traceEvidence(f.root,originalReport.data.results_ref,traceRef),/摘要|不一致/);
+  await writeFile(join(f.root,traceRef.path),originalTrace);
   await assert.rejects(reviewer.deliver(report_ref),/独立结果评估/);
-  const accepted=await reviewer.assess(report_ref,'original-review',resultResponse);
+  const accepted=await reviewer.assess(report_ref,'original-review',input=>{
+    const readable=input.evidence.find(e=>e.ref.path===traceRef.path);
+    assert.ok(readable);assert.deepEqual(JSON.parse(readable.content),events);
+    return resultResponse(input);
+  });
   assert.equal(accepted.decision,'approved');await reviewer.gate(report_ref,accepted.review_ref);
   await new ResultReviewService(f.root,f.authority).gate(report_ref,accepted.review_ref);
   assert.deepEqual(await reviewer.assess(report_ref,'original-review',()=>{throw new Error('must not call model again');}),accepted);

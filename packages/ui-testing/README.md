@@ -221,3 +221,6 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 2026-10-21 GPT 验收发现并修正两处问题：录制 action 的 `tool` schema 改为不含 MCP 前缀的原生名称枚举，避免与 backend 重复拼接；报告明确区分清单内尚无用例的功能点与清单外未探索范围，不以“未覆盖：无”外推全产品覆盖。人工耗时基线暂缺，按用户确认只记录自动流程实际耗时，暂不比较提效。
 
 录制交接中，`finish.gaps` 表示当前目标未完成或不可核验的问题，非空仍强制 partial；范围外未测功能保留于 `inventory.unexplored`。完整完成选定主链不等于全站已覆盖。
+
+
+结果分析工具的 `read-trace` 操作接收 `results_ref`、`trace_ref`，只读同批次已登记实例/attempt 的原始 `trace.zip`。复用 Playwright 1.62.1 已导出的 `playwright-core/lib/utilsBundle` 中 yauzl（无新增依赖），提取所有 *.trace 的 before/after/log/event/console 记录，保留归档摘要、成员名、行号和归属；不提取快照、网络或资源正文，不将客户端事件当作服务端根因。归档限 32 MiB、事件文件限 4 MiB、返回限 512 KiB，超预算拒绝而非静默截断。独立结果评估对 supporting_refs 引用的原始 trace 重算同一内容，不能接受模型自行写出的摘录。仍可交付缺证据的 partial 阶段报告，不能冒称完整批准。

@@ -6,6 +6,7 @@ import { Ajv } from 'ajv';
 import { Type, type Static } from 'typebox';
 import { ArtifactStore } from './store.js';
 import { analysisInputs, composeReport } from './analysis.js';
+import { traceEvidence } from './trace-evidence.js';
 import { fileRefSchema, resultCheckSchema, schemas, type Artifact, type FileRef } from './contracts.js';
 import { fileRefs, sha256, verifyReferences, workspacePath, WorkflowError } from './validation.js';
 
@@ -93,10 +94,13 @@ export class ResultReviewService {
         const refs = fileRefs([built.input.allowed, reportRef, report, built.input.saved]);
         const evidence: Evidence[] = [];
         for (const ref of [...new Map(refs.map(r => [r.path, r])).values()]) {
-          if (/\.(png|jpe?g|zip|webm|mp4|pdf)$/i.test(ref.path)) continue;
+          const trace = ref.path.endsWith('/trace.zip') && built.input.allowed.some(r => same(r, ref)) &&
+            (await this.store.load(report.data.analysis_ref) as Artifact<'analysis'>).data.findings.some(f => f.supporting_refs.some(r => same(r, ref)));
+          if (/\.(png|jpe?g|zip|webm|mp4|pdf)$/i.test(ref.path) && !trace) continue;
           try {
             await verifyReferences(this.root, ref);
-            const content = await readFile(await workspacePath(this.root, ref.path), 'utf8');
+            const content = trace ? JSON.stringify(await traceEvidence(this.root, report.data.results_ref, ref), null, 2)
+              : await readFile(await workspacePath(this.root, ref.path), 'utf8');
             const index = evidence.length + 1;
             evidence.push({ ref, content, anchors: content.split('\n').map((line, n) => ({ anchor_id: `E${index}L${n + 1}`, quote: line.trim().slice(0, 320) }))
               .filter(a => /[\p{L}\p{N}]/u.test(a.quote)).slice(0, 100) });

@@ -7,6 +7,8 @@ description: 从已有 UI 正式批次计算统计、按原始证据分析失败
 
 读取返回的 results_ref、reconciliation_ref 与原始报告/步骤。对每个非 passed 实例生成 finding，分别填写事实、候选解释、支持证据、替代解释及下一验证动作；分类为 product/script/data/environment/flaky/insufficient-evidence，结论等级为 confirmed/supported/unknown。原生失败只能证明观察与预期不符；没有服务端依据时，不从超时或 500 推断数据库、网络或具体代码根因。unknown 仍可交付真实完整的失败报告。
 
+需要引用 trace 内部动作、返回值或清理事件时，先调用 `ui_result_analysis` 的 `read-trace`，传 results_ref 和当前实例 attempt 的原始 trace_ref。工具复用 Playwright 1.62.1 的 ZIP 库，校验归属和摘要，只读 *.trace 的 before/after/log/event/console 原始事件；不包含快照、网络和资源正文，不证明服务端根因。supporting_refs 引用原始 trace_ref，评估者会从同一归档重新读取事件。不要用 shell 生成的摘录或仅凭 zip 存在声称看过内容；超预算/损坏时保留缺口，不伪造清理成功。
+
 以 save-analysis 操作登记 analysis 产物。supporting_refs 仅接受当前 run 的证据与该资产的原始来源；不能混入其他批次截图。数据残留、跳过、取消、未执行、预期失败和首败后成功均须说明。报告只链接有权查看的证据，不把凭据写入分析。引用存在不代表语义已证实，后续 reviewer 仍须核验解释。
 
 用 draft-report 操作传 results_ref、analysis_ref、report_id。程序生成范围、版本、统计、分析及限制；不能自行改数字、删失败或宣告全产品质量。再调用 ui-result-review 完成独立评估。证据缺失时重新解析为新结果 ID，生成明确 partial 的阶段报告；不覆盖原始 run 或旧结果。

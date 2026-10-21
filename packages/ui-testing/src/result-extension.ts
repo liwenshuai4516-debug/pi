@@ -6,6 +6,7 @@ import { saveAnalysis, draftReport } from './analysis.js';
 import { ResultReviewService } from './result-review.js';
 import { fileRefSchema, schemas, type Artifact, type FileRef } from './contracts.js';
 import { WorkflowError } from './validation.js';
+import { traceEvidence } from './trace-evidence.js';
 
 const id = Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' });
 function result(capability: string, output: unknown, refs: FileRef[]) {
@@ -25,12 +26,15 @@ export function registerResultTools(pi: ExtensionAPI) {
     description: '只读取已有正式 run，以程序逐实例对账并统计；登记带本批次证据的分析，生成确定性报告草稿。不执行浏览器，不授予报告批准。',
     parameters: Type.Object({ request: Type.Union([
       Type.Object({ operation: Type.Literal('parse'), run_ref: fileRefSchema, result_id: id }),
+      Type.Object({ operation: Type.Literal('read-trace'), results_ref: fileRefSchema, trace_ref: fileRefSchema }),
       Type.Object({ operation: Type.Literal('save-analysis'), analysis: schemas.analysis }),
       Type.Object({ operation: Type.Literal('draft-report'), results_ref: fileRefSchema, analysis_ref: fileRefSchema, report_id: id }),
     ]) }),
     async execute(_id, { request }, signal, _update, ctx) {
       try {
         if (signal?.aborted) throw new WorkflowError('cancelled', '结果处理已取消');
+        if (request.operation === 'read-trace') return result('ui-result-analysis',
+          await traceEvidence(ctx.cwd, request.results_ref, request.trace_ref), [request.trace_ref]);
         if (request.operation === 'parse') {
           const output = await collectResults(ctx.cwd, request.run_ref, request.result_id);
           return result('ui-result-analysis', output, [output.results_ref]);
