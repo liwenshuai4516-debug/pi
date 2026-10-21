@@ -125,7 +125,7 @@ export class ArtifactStore {
   async putFile(path: string, bytes: string | Buffer): Promise<FileRef> {
     assertPortablePath(path);
     const parts = path.split('/');
-    const groups = ['scopes', 'inventories', 'recordings', 'cases', 'assets', 'runs'];
+    const groups = ['scopes', 'inventories', 'recordings', 'cases', 'assets', 'runs', 'maintenance'];
     if (!path.startsWith(prefix + '/') || parts.some(p => p.startsWith('.')) || parts.length < 5 ||
         !groups.includes(parts[2]) ||
         ['manifest.json', 'catalog.json', 'active-run.json'].includes(posix.basename(path)) ||

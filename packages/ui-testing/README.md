@@ -48,7 +48,7 @@ node packages/ui-testing/dist/cli.js store-load /path/to/ref.json /path/to/proje
 
 代码入口为 `ArtifactStore`：`putFile` 写不可变附件，`put` 登记完成产物，`load` 验证版本与直接依赖摘要，`reindex` 重建索引。`assetDigest` 将脚本、共享 fixture、来源引用和依赖版本纳入内容摘要。业务使用者必须将实际依赖文件全部列入 files；未声明的依赖不在校验覆盖内。
 
-`updateTask(expectedRef, next)` 使用摘要比较后更新，冻结意图、输入、资产与已登记批次，不允许阶段回退。`reserveRun` 先登记启动意图，同一 request_id 和相同输入返回原批次；输入不同或存在未核对批次则阻塞。`markRunStarted` 登记 PID 与进程令牌，`finishRun` 保留退出码和输出引用。中断批次保留活跃登记，UI-11 前不自动续跑。上述 API 只管理状态，不启动进程，也不证明设计已获批；正式执行门禁由 UI-06/UI-07 实现。
+`updateTask(expectedRef, next)` 使用摘要比较后更新，冻结意图、输入、资产与已登记批次，不允许阶段回退。`reserveRun` 先登记启动意图，同一 request_id 和相同输入返回原批次；输入不同或存在未核对批次则阻塞。`markRunStarted` 登记 PID 与进程令牌，`finishRun` 保留退出码和输出引用。中断批次保留活跃登记，未知写入不自动重放；已核验未启动项可按 UI-11 新批次续跑。上述 API 只管理状态，不启动进程，也不证明设计已获批；正式执行门禁由 UI-06/UI-07 实现。
 
 复用 `proper-lockfile` 4.1.2（MIT）协调单项目元数据写入，使用文件同步和原子替换提交 manifest；不建设数据库或另一套会话存储。面向项目本地文件系统，不宣称支持网络文件系统或操作系统断电恢复。`tests/ui-testing/store.test.mjs` 覆盖独立进程读取、索引损坏重建、半成品、摘要失效、并发启动和任务版本冲突。
 
@@ -136,9 +136,9 @@ browser_type 只接受预先声明的公开合成 test_data，或当前 recordin
 
 未知诊断仅阻断模块集合有交集的资产，原范围及记录保留；旧请求没有模块信息时保守阻断。首期浏览器诊断仍串行，不表示已实现并发调度。独立 reviewer 默认关闭思考，单次调用限时 120 秒；取消、超时和无效响应不授予批准，并保留输入/响应引用。
 
-运行登记与请求状态保存在 `ui-review-authority/runtime/`，绑定候选、设计评估、诊断摘要、所有证据和实际诊断实现摘要。重新诊断先使旧证明失效，取消或结果不明时保留 unknown，禁止换 ID 重放；后续中断核对由 UI-11 实现。依赖、规则或证据变化会使 gate 拒绝旧证明；私有登记丢失时需重新评估/诊断。错误副本来源与部署版本由项目提供并接受独立设计审查，当前实现不能自动证明任意远端部署与源码一致。运行登记只证明受控脚本设计验证，正式执行仍须新预检、新数据、新 context 和新批次。
+运行登记与请求状态保存在 `ui-review-authority/runtime/`，绑定候选、设计评估、诊断摘要、所有证据和实际诊断实现摘要。重新诊断先使旧证明失效，取消或结果不明时保留 unknown，禁止换 ID 重放；诊断状态未知时继续阻断，当前不自动重放。依赖、规则或证据变化会使 gate 拒绝旧证明；私有登记丢失时需重新评估/诊断。错误副本来源与部署版本由项目提供并接受独立设计审查，当前实现不能自动证明任意远端部署与源码一致。运行登记只证明受控脚本设计验证，正式执行仍须新预检、新数据、新 context 和新批次。
 
-`npm test` 验证确定性边界、真实 Pi 工具和原生浏览器；受控模型验证接线，不替代语义质量。可单独运行 `PI_UI_DESIGN_LIVE=1 node --test --test-name-pattern="UI-06 live" tests/ui-testing/design.test.mjs` 验证配置中的真实模型；原始意见与来源保存在 `evidence/ui-testing/ui-06/`。UI-10 仍须完成重复样本校准，单次冒烟不代表零幻觉。
+`npm test` 验证确定性边界、真实 Pi 工具和原生浏览器；受控模型验证接线，不替代语义质量。可单独运行 `PI_UI_DESIGN_LIVE=1 node --test --test-name-pattern="UI-06 live" tests/ui-testing/design.test.mjs` 验证配置中的真实模型；原始意见与来源保存在 `evidence/ui-testing/ui-06/`。UI-10 的独立重复校准见闭环验收记录，单次冒烟不代表零幻觉。
 
 ## 正式执行与原始证据（UI-07）
 
@@ -152,7 +152,7 @@ Skill `/skill:ui-test-run` 调用 `ui_test_run`，首期单 chromium 项目、�
 
 产物在 `qa/ui/runs/<run-id>/`：`input.json`、原生配置、preflight、launch-intent、PID/令牌观察、process、原生 report、attempts、执行摘要和 output 中的截图/trace。run manifest 保存冻结计划、原始命令、退出码和证据引用；attempt 关联 run/case/instance、原生状态、断言步骤及附件摘要。原生报告包含未映射实例或全局错误时如实保留，不补造结果。
 
-执行摘要的 completed 仅表示执行与收集完成，exit_code=1 仍可能包含真实产品失败。身份失效和启动异常标记 blocked；取消、原生全局超时或结果不明保留中断及活跃登记，不自动换 ID 重放。查询不会自动清除阻断或重建浏览器；恢复核对留待 UI-11。统计、证据完整性及失败原因由 UI-08 对账和评估。
+执行摘要的 completed 仅表示执行与收集完成，exit_code=1 仍可能包含真实产品失败。身份失效和启动异常标记 blocked；取消、原生全局超时或结果不明保留中断及活跃登记，不自动换 ID 重放。查询不会自动清除阻断或重建浏览器；续跑与重跑入口见 UI-11，未知写入继续需要核对。统计、证据完整性及失败原因由 UI-08 对账和评估。
 
 库调用与 Agent 工具测试见 `tests/ui-testing/run.test.mjs`，包括正常/失败、两次新批次隔离、重启去重、身份失效、实际进程启动失败、原生全局超时、取消后阻断及真实 Pi Skill/工具调用。测试页面用于机制验收，不能作为外部业务系统已通过的证明。
 
@@ -192,7 +192,7 @@ Skill `/skill:ui-test-run` 调用 `ui_test_run`，首期单 chromium 项目、�
 
 mode 为 new/record 时指定已登记 scope_ref，可选 discovery=source/browser/both；默认有 base_url 时为 both，否则 source。顺序为 discover-record → case-design → design-review。source 模式须有源码清单和 draft_refs，浏览器模式须有完整 recording。候选及其修订须关联本任务实际发现的 inventory/recording；设计评估批准由原可信门禁验证。record 到此结束；new 在准备任务完成后，根据用户原有的新建并执行意图，为获批资产另建 execute 任务。设计批准但尚无运行证明时，按 `ui-design-review` 先完成诊断，再通过原执行门禁，不自填 readiness。
 
-execute 指定 asset_ref，顺序为 execute → analyze → result-review；analyze 指定已有 run_ref，顺序为 analyze → result-review；view 指定 run_ref，读取其原始证据后以该 run_ref checkpoint 即结束，不运行分析模型或浏览器。工具不会自动执行后续阶段，仍由 Agent 根据目录选择现有能力。CLI `schema workflow-start` 提供输入结构。失败集合重跑和真正中断续跑留待 UI-11，不把它们混同于执行全部已有资产。
+execute 指定 asset_ref，顺序为 execute → analyze → result-review；analyze 指定已有 run_ref，顺序为 analyze → result-review；view 指定 run_ref，读取其原始证据后以该 run_ref checkpoint 即结束，不运行分析模型或浏览器。工具不会自动执行后续阶段，仍由 Agent 根据目录选择现有能力。CLI `schema workflow-start` 提供输入结构。续跑、失败集合重跑及全量重跑分别见 UI-11，不混同于 execute。
 
 任务位于 `qa/ui/tasks/<id>/manifest.json`，包含冻结 workflow mode/source_run_ref/discovery、输入摘要、已完成阶段、输出引用、实际 run_ids 和阻塞。执行后先 status，再以最新 task_ref checkpoint；旧摘要冲突返回错误，不覆盖最新任务。结果评估 checkpoint 同时调用已有 deliver，返回并保存 delivery_ref；partial 报告明确保留完整性未通过，任务 completed 不等于测试通过或完整报告获批。
 
@@ -231,3 +231,12 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 工作流 `resume-task` 核对当前任务已保存产物及能力，继续原阶段，保留预算/完成清单，不复活终态。`ui_test_run/plan-recovery` 只读 parent_run_ref；工作流 mode=resume/rerun-failed/rerun-all 接收 run_ref，正式执行 start 传同一 parent_run_ref。resume 仅继续已证实未启动项（包含身份预检失败、business_started=false 的整 case）；失败重跑只选 failed/flaky；全量重跑重新选择同一获批资产全部 case，即使父 run 仅为子集。新 run 保存父 ID 和 selection.json，原生 Playwright grep 筛选完整测试，在新 context 重建数据。标题不唯一则拒绝筛选，选择为空不启动。
 
 中断/活跃父批次或未知副作用仍阻塞；只靠 PID 退出、文件缺失或模型判断不清除阻断。当前没有通用方式查询任意业务服务端写入，无法核对时返回明确需要核对；不宣称已自动恢复未知写操作。录制 partial 仅可查日志/归属，不按点击序号恢复；完成阶段继续用原产物。失败集合结果与原全量计划分开，历史失败和不同部署不合并成全绿。验证入口 `tests/ui-testing/recovery.test.mjs`。
+
+
+### UI-12 变更影响、导入迁移与证据维护
+
+`ui_asset_maintain` 在既有 Pi 扩展中提供薄工具：impact 接受 changed_paths 或 git_ref（原生 Git diff/未跟踪文件）；inspect-import 使用既有 TypeScript AST 发现静态测试标题/行号，动态标题待明确。返回 unmapped 候选信息，不运行、批准或猜业务断言；后续复用 ui-case-design 和独立评估。影响清单列登记依赖、命中和不完整问题，缺失/损坏引用或索引异常保守重审，不宣称完整代码影响；新部署仍执行有效旧测试。
+
+export(asset_ref,bundle_id) 将同一资产显式引用闭包写到 qa/ui-transfers/<id>/files 和 bundle.json，保留来源、fixture/helper、配置、数据规则与依赖版本，拒绝私有配置/认证文件与绝对模块导入，不复制 SessionManager、运行历史或私有批准。闭包上限 5000 文件。把包放入新项目可读目录后 import(bundle_ref) 校验全部摘要，缺失依赖返回清单，不覆盖同路径不同内容；目标重新审查和诊断，迁移不等于运行就绪。无需原 Skill 目录，私有身份状态重新配置。
+
+audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据过期和缺失/摘要失配，原 run/report 不改。仍被 run/评估/报告引用的证据默认保护；没有外部缺陷状态可信源时不猜测可删除，当前维护入口不自动删除任何证据。普通保留期不作独立删除授权。验证见 tests/ui-testing/maintenance.test.mjs。

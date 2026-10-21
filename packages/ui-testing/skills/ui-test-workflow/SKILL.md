@@ -29,3 +29,11 @@ discover-record 交接完整 recording；source 模式交接含 draft_refs 的 i
 恢复任务时先 status 查询原 task；`resume-task` 传最新 task_ref，仅核对当前能力与已有产物、恢复原阶段，保留 completed_stages、产物和评估预算，不重录已完成阶段。终态不复活。录制中断仍查询原日志及数据归属，partial 不可直接交接设计；未知副作用先核对，不能从临时浏览器 ref 接着点击。
 
 执行恢复使用 mode=resume/rerun-failed/rerun-all，run_ref 指向父批次；先使用 ui-test-run 的 plan-recovery 检查选择和阻断。分析交接和最终报告绑定本任务新 run，不能误用父 run。执行已完成、分析未完成时，继续当前 analyze 或新建 analyze 指向旧 run，无需重新执行。
+
+
+资产维护按需调用 `ui_asset_maintain`，不是另一个工作流平台：
+- impact：提供 changed_paths 或 git_ref（二选一），输出已登记依赖/受影响资产/不完整问题。只按登记引用判断；不完整则保守重审，不能称精确代码影响。只补相关片段或修订并回设计/诊断，新部署仍按有效旧用例回归。
+- inspect-import：提供项目内 script_path，仅发现已有测试标题及行号，动态标题显式待核对。将返回 script_ref 交给 ui-case-design，补来源、case/断言映射、依赖和数据规则，再独立设计评估；不改写旧测试使其通过。
+- export：asset_ref、bundle_id，复制引用闭包到 qa/ui-transfers/<id>，不复制私有认证/模型/会话/批准。缺依赖或绝对模块路径先修订，不隐藏迁移失败。
+- import：迁移文件夹已放入允许的新项目后，传 bundle_ref。缺失/损坏依赖返回清单，不从头重生成；目标环境重新核对依赖、身份、设计批准和诊断，未迁移旧批准。
+- audit-evidence：retention_days、audit_id，保存到 qa/ui/maintenance，标记超过保留期及不可核验文件。已登记 run 引用默认保护，当前没有外部缺陷关闭的可信源，所以不自动删除；不要用审计覆盖原始报告。
