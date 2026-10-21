@@ -54,7 +54,8 @@ export default function (pi: ExtensionAPI) {
         input: Type.Record(Type.String(), Type.Unknown()), intent: Type.String({ minLength: 1 }) }),
       Type.Object({ operation: Type.Literal('finish'), session_ref: fileRefSchema, inventory_ref: fileRefSchema,
         initial_state: Type.String({ minLength: 1 }), completion: schemas.recording.properties.data.properties.completion,
-        gaps: Type.Array(Type.String()), goal_reached: Type.Boolean() }),
+        gaps: Type.Array(Type.String(), { description: '当前录制目标未完成或不可核验的问题；非空即 partial。范围外未测功能放 inventory.unexplored，仍须保留。' }),
+        goal_reached: Type.Boolean() }),
     ]) }),
     async execute(_id, { request: args }, signal, _update, ctx) {
       const service = new RecordingService(ctx.cwd);

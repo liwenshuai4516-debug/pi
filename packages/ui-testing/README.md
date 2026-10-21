@@ -219,3 +219,5 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 历史证据查看通过 `node --test tests/ui-testing/trace-view.test.mjs` 验证：复用 Playwright `show-trace` CLI 与原生 Trace Viewer，由真实 Chromium 打开历史失败并选择断言；仅允许访问本地 viewer，核对业务请求数不增加、原始 trace/run 未改变。证据在 `evidence/ui-testing/ui-10/trace-view/`。viewer 使用独立临时进程并在收尾关闭，不创建新的产品报告查看器。
 
 2026-10-21 GPT 验收发现并修正两处问题：录制 action 的 `tool` schema 改为不含 MCP 前缀的原生名称枚举，避免与 backend 重复拼接；报告明确区分清单内尚无用例的功能点与清单外未探索范围，不以“未覆盖：无”外推全产品覆盖。人工耗时基线暂缺，按用户确认只记录自动流程实际耗时，暂不比较提效。
+
+录制交接中，`finish.gaps` 表示当前目标未完成或不可核验的问题，非空仍强制 partial；范围外未测功能保留于 `inventory.unexplored`。完整完成选定主链不等于全站已覆盖。
