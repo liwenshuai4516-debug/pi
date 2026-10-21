@@ -1,6 +1,6 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.0，已实现 UI-02 的产物契约、UI-03 的本地持久化及 UI-04 的环境/数据 fixture。录制/执行兼容性已由 UI-01 验证，完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；本包还不能正式审批资产或执行测试。
+当前版本 0.1.0，已实现 UI-02 的产物契约、UI-03 的本地持久化、UI-04 的环境/数据 fixture 及 UI-05 的发现与自动录制交接。录制/执行兼容性已由 UI-01 验证，完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；本包还不能正式审批资产或执行测试。
 
 ## 使用
 
@@ -91,3 +91,27 @@ Playwright 原生 context 隔离浏览器状态；命名空间区分每次尝试
 前置失败输出 `ui-preflight` 附件，类别为 precondition，业务主体不执行；UI-07/UI-08 负责将此失败与业务断言失败区分统计。数据事件持久化到对应 run/recording 的 `data/`，teardown 输出 `ui-data-lifecycle` 附件，清理失败保留原因码和残留，业务通过/失败不被覆盖。受控取消、断言失败和超时使用 Playwright teardown；强制杀死进程不保证清理完成，未完成记录留待核对。原始截图、trace 和业务回调错误可能含敏感信息，应按项目证据规则控制访问和脱敏，不能因普通生命周期记录无凭据就声称所有证据均无秘密。
 
 `tests/ui-testing/environment.test.mjs` 使用真实 Chromium、真实 Playwright runner 验证独立上下文、业务失败/清理失败、取消、有效及失效认证状态；数据归属、保留与锁使用额外确定性检查。
+
+## 模块发现与自动录制（UI-05）
+
+Skill `/skill:ui-discover-record` 使用新工具 `ui_discover_record`。工具参数为 `{request: {operation, ...操作字段}}`，操作包括：
+
+| 操作 | 作用 |
+|---|---|
+| inventory | 登记模块/功能/场景、角色、入口、覆盖状态和来源；可附 drafts（name/content），生成不可变 draft_refs |
+| start | 绑定 scope/inventory、初始状态和数据规则、seed 摘要、后端/浏览器项目、唯一输出文件和预算，返回 session_ref |
+| action | 每次通过 Pi 的公开 `executeTool` 调用一个实际 MCP 工具，先写请求再写结果，返回 observation_ref |
+| status | 从文件读取动作与停止原因，不启动或恢复浏览器 |
+| finish | 保存原始日志、参数化草稿和完整/局部 recording；不批准设计或正式执行 |
+
+Agent 复用已有读取/检索工具进行源码分析，按业务模块和功能归类，不建设新的框架解析器。只有源码时保存 discovery=source、coverage=discovered 和未核验缺口，可生成带来源的脚本草稿；不会启动浏览器或声称定位器/部署已验证。浏览器清单的 source_refs 使用真实 observation_ref，范围限于当前角色可见状态。单个模块优先，不自动遍历所有提交、删除或通知动作。
+
+首期单一后端为已验证的 Playwright 测试 MCP。start 冻结真实工具前缀、seed/project 和全新草稿路径；setup 实际执行 seed，因此应复用 UI-04 或团队既有前置/数据生命周期 fixture。action 直接使用原工具参数，包含工具本身要求的 intent；`browser_close` 也要求 intent。模型可使用当前 target/ref 交互，但持久脚本须使用语义定位器。
+
+同一 operation_id 和同样参数返回原结果；参数改变会阻塞。已写请求但没有结果、工具失败或取消时停止新业务动作，保留未知副作用，禁止盲目重放。步数、时长及连续相同快照均受限；超时向现有工具传递取消信号，未确认的外部动作仍记 unknown，不声称已撤销。`browser_close` 可以在停止后作为清理动作调用并留证。当前会话录制期间直接 MCP 调用被阻止，应通过 action 进入记录路径；该约束不等同于隔离任意第三方扩展或强制限制外部进程。
+
+browser_type 只接受预先声明的公开合成 test_data，或当前 recording 的 UI-04 ready 记录中已登记业务键；认证使用私有 storageState。finish 关联实际数据生命周期事件及清理结果。原始请求、快照和日志作为受控测试证据保存，仍需遵循脱敏规则。新 Agent 可读取历史 status，但 action 只接受本 Agent 启动的会话，避免重启后盲目续点。源码/规则变化会导致引用摘要检查拒绝继续；保留旧证据，待核对后创建新录制，不自动从点击中间恢复。
+
+完成检查包含可重建初始状态、可替换数据、稳定定位、有来源断言、清理归属；缺项、未知结果、已登记数据仍待清理/清理失败，或草稿含临时 ref/固定输入/个人路径均保存 partial。此阶段的脚本检查仅用于交接，不代替 UI-06 的编译、独立设计评估与断言自检。草稿回放是隔离的设计验证，不计入正式通过数。
+
+`tests/ui-testing/recording.test.mjs` 覆盖预算、重复操作/中断、固定输入及临时路径检查，并以受控协议模型驱动真实 Pi、原生 MCP 和 Chromium，验证自动交互、真实来源、seed teardown、重读持久化和参数化草稿回放；另验证源码读取/草稿保存全程无浏览器动作。模型在任意真实项目中的规划质量仍待 UI-10 验收。

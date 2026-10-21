@@ -40,6 +40,22 @@ export function validateArtifact(input: unknown): Artifact {
   const artifact = input as Artifact;
   if (!Number.isFinite(Date.parse(artifact.created_at))) throw new WorkflowError('invalid-input', 'created_at 必须是有效日期');
   for (const ref of fileRefs(artifact)) assertPortablePath(ref.path);
+  if (artifact.kind === 'inventory') {
+    const data = (artifact as Artifact<'inventory'>).data;
+    unique(data.features.map(f => `${f.module_id}/${f.feature_id}`), 'module/feature');
+    for (const feature of data.features) {
+      unique(feature.scenarios.map(s => s.scenario_id), 'scenario_id');
+      if (feature.discovery !== 'unconfirmed' && !feature.source_refs.length) throw new WorkflowError('invalid-input', '已发现功能须有来源引用');
+      if (feature.discovery === 'source' && feature.coverage === 'explored') throw new WorkflowError('invalid-input', '仅源码不能标记已浏览器探索');
+    }
+  }
+  if (artifact.kind === 'recording') {
+    const data = (artifact as Artifact<'recording'>).data;
+    unique(data.steps.map(s => s.step_id), 'recording step_id');
+    if (data.status === 'complete' && (data.gaps.length || !data.script_refs.length || !data.steps.length || Object.values(data.completion).some(v => !v))) {
+      throw new WorkflowError('invalid-input', '缺少完成检查、动作或脚本的录制只能登记 partial');
+    }
+  }
   if (artifact.kind === 'cases') {
     const data = artifact.data as Artifact<'cases'>['data'];
     unique(data.cases.map(c => c.case_id), 'case_id');

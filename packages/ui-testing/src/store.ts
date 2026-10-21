@@ -169,10 +169,11 @@ export class ArtifactStore {
   async reindex(): Promise<Catalog> { return this.locked(() => this.catalog()); }
 
   async acquireResource(name: string): Promise<() => Promise<void>> {
-    const root = await this.directory(prefix);
+    // proper-lockfile 的进程内登记以目标真实路径为键，不能只改变 lockfilePath，
+    // 否则嵌套元数据写锁会覆盖资源锁登记。
+    const root = await this.directory(`${prefix}/locks/${sha256(name)}`);
     try {
-      return await lockfile.lock(root, { realpath: true, retries: 0,
-        lockfilePath: join(root, `.resource-${sha256(name)}.lock`) });
+      return await lockfile.lock(root, { realpath: true, retries: 0 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ELOCKED') throw error;
       throw new WorkflowError('precondition', '共享测试资源已有任务占用');

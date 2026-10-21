@@ -67,6 +67,7 @@ test('UI-04: data ownership, preparation failure, cleanup failure and agreed ret
 test('UI-04: shared environment resource lock excludes another owner and is released', async t => {
   const dir = await root(t), store = new ArtifactStore(dir);
   const release = await store.acquireResource('environment:test');
+  await store.putFile('qa/ui/runs/shared-test/log.json', '{}');
   await assert.rejects(new ArtifactStore(dir).acquireResource('environment:test'), /占用/);
   await release(); await (await store.acquireResource('environment:test'))();
 });
