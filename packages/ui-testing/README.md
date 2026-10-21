@@ -1,6 +1,6 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.0，已实现 UI-02 的产物契约、UI-03 的本地持久化、UI-04 的环境/数据 fixture 及 UI-05 的发现与自动录制交接。录制/执行兼容性已由 UI-01 验证，完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；本包尚未提供正式执行入口。
+当前版本 0.1.0，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断，以及正式执行入口。完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；统计、失败归因、结果评估与按需总流程尚待后续任务。
 
 UI-06 已接入候选静态检查、独立设计评估与受控诊断登记，具体验收状态以实施计划为准。运行就绪不等于产品通过，也不替代后续正式执行的当前环境预检。
 
@@ -139,3 +139,19 @@ browser_type 只接受预先声明的公开合成 test_data，或当前 recordin
 运行登记与请求状态保存在 `ui-review-authority/runtime/`，绑定候选、设计评估、诊断摘要、所有证据和实际诊断实现摘要。重新诊断先使旧证明失效，取消或结果不明时保留 unknown，禁止换 ID 重放；后续中断核对由 UI-11 实现。依赖、规则或证据变化会使 gate 拒绝旧证明；私有登记丢失时需重新评估/诊断。错误副本来源与部署版本由项目提供并接受独立设计审查，当前实现不能自动证明任意远端部署与源码一致。运行登记只证明受控脚本设计验证，正式执行仍须新预检、新数据、新 context 和新批次。
 
 `npm test` 验证确定性边界、真实 Pi 工具和原生浏览器；受控模型验证接线，不替代语义质量。可单独运行 `PI_UI_DESIGN_LIVE=1 node --test --test-name-pattern="UI-06 live" tests/ui-testing/design.test.mjs` 验证配置中的真实模型；原始意见与来源保存在 `evidence/ui-testing/ui-06/`。UI-10 仍须完成重复样本校准，单次冒烟不代表零幻觉。
+
+## 正式执行与原始证据（UI-07）
+
+Skill `/skill:ui-test-run` 调用 `ui_test_run`，首期单 chromium 项目、单 worker、无自动业务重试。原生 Playwright Test 负责 context、断言、fixture、报告和 trace，不另建执行引擎。
+
+- 启动：`{request:{operation:"start",input:{task_id,request_id,asset_ref,review_ref,environment_ref,config_ref,timeout_ms}}}`，完整结构见 CLI `schema run-request`。
+- 查询：`{request:{operation:"status",task_id,request_id}}`，只读取旧批次；同次 start 的相同输入也只返回原结果。
+- task 是同范围的独立执行任务，intent 为 execute 或 rerun-all，asset_refs 已冻结选定资产。config_ref 必须属于获批修订；当前环境文件可独立更新，但必须匹配范围、角色和地址，并重新核验身份与初态。
+
+`UiRunService.start/status` 先验证可信设计批准及诊断证明，再冻结 case × 数据行 × 浏览器实例，登记 pending 批次和启动意图后调用原生 CLI。每次新请求产生新批次，使用新 context；同任务并发拒绝。预检后与执行结束时再次校验输入和门禁，变化或缺证据保留问题，不能沿用旧批准输出完整通过。
+
+产物在 `qa/ui/runs/<run-id>/`：`input.json`、原生配置、preflight、launch-intent、PID/令牌观察、process、原生 report、attempts、执行摘要和 output 中的截图/trace。run manifest 保存冻结计划、原始命令、退出码和证据引用；attempt 关联 run/case/instance、原生状态、断言步骤及附件摘要。原生报告包含未映射实例或全局错误时如实保留，不补造结果。
+
+执行摘要的 completed 仅表示执行与收集完成，exit_code=1 仍可能包含真实产品失败。身份失效和启动异常标记 blocked；取消、原生全局超时或结果不明保留中断及活跃登记，不自动换 ID 重放。查询不会自动清除阻断或重建浏览器；恢复核对留待 UI-11。统计、证据完整性及失败原因由 UI-08 对账和评估，未接入前仅交付原始结果及缺口。
+
+库调用与 Agent 工具测试见 `tests/ui-testing/run.test.mjs`，包括正常/失败、两次新批次隔离、重启去重、身份失效、实际进程启动失败、原生全局超时、取消后阻断及真实 Pi Skill/工具调用。测试页面用于机制验收，不能作为外部业务系统已通过的证明。

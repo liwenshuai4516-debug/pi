@@ -2,12 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { ArtifactStore, artifactSchema, capabilities, capabilityResultSchema, validateArtifact, verifyReferences, WorkflowError, type ArtifactKind } from './index.js';
 import { diagnosticSpecSchema } from './diagnostics.js';
+import { runRequestSchema } from './runner.js';
 
 try {
   const [command, input, root = process.cwd()] = process.argv.slice(2);
   if (command === 'capabilities') console.log(JSON.stringify(capabilities, null, 2));
   else if (command === 'schema' && input) {
-    console.log(JSON.stringify(input === 'capability-result' ? capabilityResultSchema : input === 'diagnostic-spec' ? diagnosticSpecSchema : artifactSchema(input as ArtifactKind), null, 2));
+    console.log(JSON.stringify(input === 'capability-result' ? capabilityResultSchema : input === 'diagnostic-spec' ? diagnosticSpecSchema
+      : input === 'run-request' ? runRequestSchema : artifactSchema(input as ArtifactKind), null, 2));
   } else if (command === 'store-index' && input) {
     console.log(JSON.stringify(await new ArtifactStore(resolve(input)).reindex(), null, 2));
   } else if (command === 'store-put' && input) {

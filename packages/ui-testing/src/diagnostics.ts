@@ -36,7 +36,7 @@ type NativeSuite = { specs: NativeSpec[]; suites?: NativeSuite[] };
 type NativeReport = { errors: unknown[]; suites: NativeSuite[] };
 const steps = (input: Step[]): Step[] => input.flatMap(s => [s, ...steps(s.steps ?? [])]);
 
-async function preflight(root: string, env: UiEnvironment, timeout: number, signal?: AbortSignal) {
+export async function preflightEnvironment(root: string, env: UiEnvironment, timeout: number, signal?: AbortSignal) {
   const { chromium, expect } = createRequire(join(root, 'package.json'))('playwright/test') as typeof import('@playwright/test');
   let phase = 'auth-reference', passed = false;
   try {
@@ -157,7 +157,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
   const output: { id: string; report_ref?: FileRef; process_ref?: FileRef; evidence_refs: FileRef[]; problems: string[] }[] = [];
   let targetPreflightRef: FileRef | undefined, targetPassed = true, unknownEffects = false;
   if (spec.control_environment_ref) {
-    const result = await preflight(root, target, spec.timeout_ms, signal);
+    const result = await preflightEnvironment(root, target, spec.timeout_ms, signal);
     targetPreflightRef = await store.putFile(`${base}/target-preflight.json`, json(result));
     targetPassed = result.status === 'completed';
     if (!targetPassed) output.push({ id: 'target', evidence_refs: [targetPreflightRef], problems: [`目标环境前置检查失败：${result.check}`] });
@@ -166,7 +166,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
   for (const [index, round] of rounds.entries()) {
     if (signal?.aborted || !targetPassed) break;
     const directory = `${base}/${round.id}`, env = index === 0 ? control : environments[index];
-    const preflightResult = await preflight(root, env, spec.timeout_ms, signal);
+    const preflightResult = await preflightEnvironment(root, env, spec.timeout_ms, signal);
     const preflightRef = await store.putFile(`${directory}/preflight.json`, json(preflightResult));
     if (preflightResult.status !== 'completed') {
       output.push({ id: round.id, evidence_refs: [preflightRef], problems: [`前置检查失败：${preflightResult.check}，未运行候选脚本`] });

@@ -132,4 +132,9 @@ export const capabilities = [{ capability_id: 'ui-validate-artifact', capability
   side_effects: 'browser-actions-and-native-runner', safe_to_repeat: false,
   requires: { pi: '1.2.0', schema: '1.0', playwright: '1.62.1' },
   errors: ['invalid-input', 'precondition', 'review-rejected', 'missing-capability', 'cancelled'],
+}, { capability_id: 'ui-test-run', capability_version: '0.1.0',
+  input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_test_run',
+  side_effects: 'formal-browser-actions-and-native-runner', safe_to_repeat: false,
+  requires: { pi: '1.2.0', schema: '1.0', playwright: '1.62.1' },
+  errors: ['invalid-input', 'precondition', 'review-rejected', 'missing-capability', 'incompatible-version', 'runner-error', 'cancelled'],
 }];
