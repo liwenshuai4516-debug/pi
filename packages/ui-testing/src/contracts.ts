@@ -55,7 +55,7 @@ const bodies = {
     scope_ref: fileRefSchema, state: enumOf(['pending', 'running', 'blocked', 'completed', 'cancelled']),
     stage: enumOf([...stages]), completed_stages: Type.Array(enumOf([...stages])), input_sha256: digest,
     asset_refs: refs, run_ids: Type.Array(id), output_refs: refs, blockers: strings }),
-  run: object({ task_id: id, parent_run_id: Type.Optional(id), asset_ref: fileRefSchema,
+  run: object({ task_id: id, request_id: id, parent_run_id: Type.Optional(id), asset_ref: fileRefSchema,
     environment_id: id, deployment_version: Type.String(), role: Type.String(),
     plan: Type.Array(instance, { minItems: 1 }), state: enumOf(['pending', 'running', 'finished', 'interrupted', 'unknown']),
     command: strings, process_token: id, pid: Type.Optional(Type.Integer({ minimum: 1 })),
