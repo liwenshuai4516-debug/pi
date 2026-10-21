@@ -1,6 +1,6 @@
 import { Type } from 'typebox';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { RecordingService, recordingStartSchema } from './recording.js';
+import { RecordingService, recordingStartSchema, recordingTools } from './recording.js';
 import { fileRefSchema, schemas, type Artifact, type CapabilityResult } from './contracts.js';
 import { validateArtifact, WorkflowError } from './validation.js';
 import { registerDesignTools } from './design-extension.js';
@@ -49,7 +49,8 @@ export default function (pi: ExtensionAPI) {
       Type.Object({ operation: Type.Literal('start'), configuration: recordingStartSchema }),
       Type.Object({ operation: Type.Literal('status'), session_ref: fileRefSchema }),
       Type.Object({ operation: Type.Literal('action'), session_ref: fileRefSchema,
-        operation_id: Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' }), tool: Type.String(),
+        operation_id: Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' }),
+        tool: Type.Enum(recordingTools, { description: '不含 MCP 前缀的工具名；后端前缀由录制会话添加。' }),
         input: Type.Record(Type.String(), Type.Unknown()), intent: Type.String({ minLength: 1 }) }),
       Type.Object({ operation: Type.Literal('finish'), session_ref: fileRefSchema, inventory_ref: fileRefSchema,
         initial_state: Type.String({ minLength: 1 }), completion: schemas.recording.properties.data.properties.completion,

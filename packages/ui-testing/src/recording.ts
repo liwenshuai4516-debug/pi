@@ -29,7 +29,7 @@ const ajv = new Ajv({ strict: true });
 const validStart = ajv.compile(recordingStartSchema);
 const emit = (input: unknown) => JSON.stringify(input, null, 2) + '\n';
 const text = (outcome: Outcome) => outcome.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n');
-const tools = ['generator_setup_page', 'generator_read_log', 'generator_write_test', 'browser_snapshot', 'browser_click',
+export const recordingTools = ['generator_setup_page', 'generator_read_log', 'generator_write_test', 'browser_snapshot', 'browser_click',
   'browser_type', 'browser_press_key', 'browser_select_option', 'browser_navigate', 'browser_verify_text_visible', 'browser_close'];
 
 /** 仅做业务交接与限额；每次 execute 恰好调用一个现有 Pi/MCP 工具，不另建 Agent 循环。 */
@@ -143,7 +143,7 @@ export class RecordingService {
       }
       try { await access(join(this.projectRoot, this.base(session.id), 'manifest.json')); throw new WorkflowError('precondition', '录制已登记结束，不能追加浏览器动作'); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      if (!tools.includes(call.tool)) throw new WorkflowError('invalid-input', '不支持此录制工具；不会回退到其他浏览器后端');
+      if (!recordingTools.includes(call.tool)) throw new WorkflowError('invalid-input', '录制 tool 须为不含 MCP 前缀的名称，例如 generator_setup_page；不会回退到其他浏览器后端');
       const stopped = this.stopped(session, events);
       if (stopped && call.tool !== 'browser_close') throw new WorkflowError('precondition', `录制已停止：${stopped}`);
       if (call.tool === 'generator_setup_page' &&

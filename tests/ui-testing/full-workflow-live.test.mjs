@@ -10,6 +10,7 @@ import { ArtifactStore, UiWorkflowService, DesignReviewService, ResultReviewServ
 import { setupUiFixture, copyLiveModel, repoRoot } from '../support/ui-fixture.mjs';
 import { scope } from '../support/ui-artifacts.mjs';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
+import { liveDesktopReuse } from '../support/ui-workflow-desktop.mjs';
 
 test('UI-10 live: model creates recorded assets, reviews and runs them, reuses after process exit, and reports a real failure', {
   skip:process.env.PI_UI_FULL_LIVE!=='1',timeout:2700000,
@@ -46,6 +47,7 @@ test.use(${JSON.stringify({uiEnvironment:environment(fixture.url),uiOwner:{task_
 test('seed',async({uiData,page})=>{await uiData.prepare({creation_method:'owned-context-key',fixture_version:'1',ttl_ms:600000,cleanup_method:'owned-key-then-close-context',create:async key=>key,cleanup:async key=>{await page.evaluate(key=>{const rows=JSON.parse(localStorage.getItem('names')||'[]');localStorage.setItem('names',JSON.stringify(rows.filter(value=>value!==key)));},key);}});});`);
   const seedRef={path:'tests/seed.spec.ts',sha256:sha256(await readFile(join(root,'tests/seed.spec.ts')))};
   const inputs={scope_ref:scopeRef,initial_state_ref:initial,data_rules_ref:dataRules,seed_ref:seedRef,recording_id:'live-recording',
+    recording_budget:{max_steps:30,max_duration_ms:600000,max_no_progress:3},
     output_file:'tests/live-recorded.spec.ts',project:'chromium',environment_ref:positive,config_ref:config,
     negative_environment_ref:negative,negative_config_ref:negativeConfig,files:inputFiles};
   await writeFile(join(root,'live-inputs.json'),JSON.stringify(inputs,null,2));
@@ -54,10 +56,11 @@ test('seed',async({uiData,page})=>{await uiData.prepare({creation_method:'owned-
   const authority=join(fixture.agentDir,'sessions/ui-review-authority'),workflow=new UiWorkflowService(root,authority,{tools:[],skills:[]});
   const phase=async(name,prompt)=>{
     const output=join(evidence,`${name}.json`),started=Date.now();await writeFile(join(evidence,`${name}-prompt.md`),prompt);
+    const deadline=name==='prepare'?1200000:600000;
     const item={name,started_at:new Date().toISOString()};summary.phases.push(item);
     try{
       await promisify(execFile)(process.execPath,[join(repoRoot,'tests/support/ui-workflow-process.mjs'),fixture.agentDir,root,output,prompt],
-        {cwd:repoRoot,timeout:660000,maxBuffer:1024*1024,env:{...process.env,PI_UI_WORKFLOW_DEADLINE_MS:'600000',PI_UI_WORKFLOW_MAX_TOOLS:'100'}});
+        {cwd:repoRoot,timeout:deadline+60000,maxBuffer:1024*1024,env:{...process.env,PI_UI_WORKFLOW_DEADLINE_MS:String(deadline),PI_UI_WORKFLOW_MAX_TOOLS:'100'}});
       const saved=JSON.parse(await readFile(output,'utf8'));item.session_id=saved.session_id;item.pid=saved.pid;item.calls=saved.calls;
       assert.equal(saved.timed_out,false);assert.equal(saved.tool_limit_reached,false);assert.notEqual(saved.stop_reason,'error');
       assert.throws(()=>process.kill(saved.pid,0),error=>error.code==='ESRCH','previous Agent process must have fully exited');
@@ -109,13 +112,15 @@ test('seed',async({uiData,page})=>{await uiData.prepare({creation_method:'owned-
       assert.ok(output.calls.every(name=>!['ui_discover_record','ui_case_design','ui_design_review','ui_design_diagnose'].includes(name)));
       for(const name of ['ui_test_workflow','ui_test_run','ui_result_analysis','ui_result_review'])assert.ok(output.calls.includes(name),`production execution missing ${name}`);
     }
+    summary.desktop=await liveDesktopReuse(fixture,evidence,executePrompt('live-desktop'));
+    summary.desktop_execution=await checkExecution('live-desktop',false);
     fixture.state.discardPersistence=true;
     const failed=await phase('failure',executePrompt('live-failure'));summary.failure=await checkExecution('live-failure',true);
     for(const name of ['ui_test_workflow','ui_test_run','ui_result_analysis','ui_result_review'])assert.ok(failed.calls.includes(name));
     assert.ok(failed.calls.every(name=>!['ui_discover_record','ui_case_design','ui_design_review','ui_design_diagnose'].includes(name)));
     assert.equal(sha256(await readFile(join(root,asset.asset_ref.path))),sha256(assetBytes));
     assert.equal(fixture.state.requests,0,'external model workflow must never be served by the protocol fixture');
-    summary.passed=true;summary.limitations=['Fresh child process restart is covered here; actual desktop restart is separately required.',
+    summary.passed=true;summary.limitations=[
       'Controlled target is not evidence of coverage for any real business deployment.','Full M3 also requires repeated calibration and the remaining acceptance matrix.'];
   }catch(error){summary.error=error.message;throw error;}
   finally{

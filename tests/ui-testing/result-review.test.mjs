@@ -23,6 +23,10 @@ test('UI-08: real failure with unknown root is reviewable; rejection/correction 
   await assert.rejects(reviewer.gate(report_ref,forgedRef),/独立评估路径/);
   const delivery=await reviewer.deliver(report_ref,accepted.review_ref);
   const content=await readFile(join(f.root,delivery.delivery_ref.path),'utf8');assert.match(content,/unknown/);assert.match(content,/\| failed \| 1 \|/);
+  // 清单外的未探索范围不能被“未覆盖功能点：无”这一无边界表述掩盖。
+  assert.match(content,/清单内尚无用例的功能点：无/);
+  assert.match(content,/未探索范围（不计入上述清单分母）/);
+  assert.doesNotMatch(content,/；未覆盖功能点：无/);
   for(const link of content.matchAll(/\]\(([^)]+)\)/g))await readFile(resolve(f.root,dirname(delivery.delivery_ref.path),link[1]));
   const report=await f.store.load(report_ref),follow=JSON.parse(await readFile(join(f.root,report.data.follow_up_ref.path),'utf8'));
   assert.equal(follow[0].defect_draft.status,'draft-not-submitted');assert.equal(follow[0].action_performed,false);

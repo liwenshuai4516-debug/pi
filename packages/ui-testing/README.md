@@ -214,6 +214,8 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 
 ### UI-10 完整主链与历史 trace 查看
 
-构建后显式运行 `PI_UI_FULL_LIVE=1 node --test tests/ui-testing/full-workflow-live.test.mjs`；模型配置来源和 `PI_UI_PROVIDER` / `PI_UI_MODEL` 选择方式与校准入口相同。只有模型实际可用时才能继续主链；普通回归跳过该项。入口准备隔离需求、环境、归属 seed 和正反目标，由模型通过生产 Skills 自主录制、生成用例/断言、独立设计评估及诊断，再验证正常执行/报告、完全退出子进程后复用和受控故障的失败报告。每阶段原生任务最多 10 分钟、100 次工具调用，不自动重发。保存实际调用、原始回复、阶段耗时和 qa/ui；任何失败都不会标记 M3 完成。该入口的成功路径尚待真实模型验收，进程重启也不代替 Electron 重启。
+构建后显式运行 `PI_UI_FULL_LIVE=1 node --test tests/ui-testing/full-workflow-live.test.mjs`；模型配置来源和 `PI_UI_PROVIDER` / `PI_UI_MODEL` 选择方式与校准入口相同。只有模型实际可用时才能继续主链；普通回归跳过该项。入口准备隔离需求、环境、归属 seed 和正反目标，由模型通过生产 Skills 自主录制、生成用例/断言、独立设计评估及诊断，再验证正常执行/报告、完全退出子进程后复用和受控故障的失败报告。准备阶段最多 20 分钟，其余子进程阶段最多 10 分钟，每阶段最多 100 次工具调用，不自动重发。录制预算在输入中明确为最多 30 步、10 分钟，不能在同一任务中重置预算。保存实际调用、原始回复、阶段耗时和 qa/ui；任何失败都不会标记 M3 完成。新增 `tests/support/ui-workflow-desktop.mjs` 通过真实 Electron/preload/IPC 先查询目录，完全退出全部子进程后新会话执行同一资产；该分支及整体成功路径仍须实际通过才可登记验收。
 
 历史证据查看通过 `node --test tests/ui-testing/trace-view.test.mjs` 验证：复用 Playwright `show-trace` CLI 与原生 Trace Viewer，由真实 Chromium 打开历史失败并选择断言；仅允许访问本地 viewer，核对业务请求数不增加、原始 trace/run 未改变。证据在 `evidence/ui-testing/ui-10/trace-view/`。viewer 使用独立临时进程并在收尾关闭，不创建新的产品报告查看器。
+
+2026-10-21 GPT 验收发现并修正两处问题：录制 action 的 `tool` schema 改为不含 MCP 前缀的原生名称枚举，避免与 backend 重复拼接；报告明确区分清单内尚无用例的功能点与清单外未探索范围，不以“未覆盖：无”外推全产品覆盖。人工耗时基线暂缺，按用户确认只记录自动流程实际耗时，暂不比较提效。

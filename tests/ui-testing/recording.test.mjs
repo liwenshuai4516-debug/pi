@@ -106,6 +106,10 @@ test('seed',async({uiData,page})=>{const row=await uiData.prepare({creation_meth
   const host=new AgentHost(()=>{},()=>{},fixture.agentDir);t.after(()=>host.dispose());
   await new PluginManager(fixture.agentDir,fixture.project).install(join(repoRoot,'packages/ui-testing'),'package');
   const view=await host.create(fixture.project,true);
+  const recordingTool=host.entries.get(view.id).agent.state.tools.find(t=>t.name==='ui_discover_record');
+  const actionSchema=recordingTool.parameters.properties.request.anyOf.find(s=>s.properties.operation.const==='action');
+  assert.ok(actionSchema.properties.tool.enum.includes('generator_setup_page'));
+  assert.ok(actionSchema.properties.tool.enum.every(name=>!name.startsWith('mcp__')));
   await until(async()=>(await host.listMcp(view.id)).servers.some(s=>s.state==='connected'));
   assert.ok(view.skills.some(s=>s.name==='ui-discover-record'));
   const workflow=new UiWorkflowService(fixture.project,join(fixture.agentDir,'sessions/ui-review-authority'),{
