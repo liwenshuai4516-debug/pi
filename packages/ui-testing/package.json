@@ -1,0 +1,12 @@
+{
+  "name": "pi-ui-testing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi UI 测试工作流的项目规则、产物契约与必要适配",
+  "exports": "./dist/index.js",
+  "files": ["dist", "skills", "examples"],
+  "pi": { "extensions": ["./dist/extension.js"], "skills": ["./skills"] },
+  "dependencies": { "ajv": "8.17.1" },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "1.2.0", "typebox": "*" }
+}

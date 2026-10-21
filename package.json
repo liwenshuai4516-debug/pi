@@ -7,7 +7,7 @@
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "npm start",
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc -p packages/ui-testing/tsconfig.json --noEmit",
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
     "test": "npm run build && node --test tests/*/*.test.mjs",
@@ -22,6 +22,7 @@
     "@earendil-works/pi-mcp": "1.2.0",
     "@earendil-works/pi-telemetry": "1.2.0",
     "@earendil-works/pi-tui": "1.2.0",
+    "ajv": "8.17.1",
     "dompurify": "3.4.17",
     "marked": "18.0.11",
     "proper-lockfile": "4.1.2"

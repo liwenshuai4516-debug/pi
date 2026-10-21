@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "id": "scope-example",
+  "kind": "scope",
+  "created_at": "2026-10-21T00:00:00.000Z",
+  "data": {
+    "project_id": "example",
+    "environment_id": "test",
+    "role": "tester",
+    "goal": "生成带来源的 UI 测试草稿，未知预期保留待确认",
+    "allowed_actions": [],
+    "sources": [],
+    "budget": { "max_review_rounds": 3, "max_tool_calls": 20 }
+  }
+}
