@@ -1,0 +1,4 @@
+interface:
+  display_name: "UI 测试完整工作流"
+  short_description: "复用 Pi 与 Playwright 的录制、独立评估、执行、分析和资产维护流程"
+  default_prompt: "使用 $ui-testing-workflow 检查当前项目的 UI 测试环境，并按已有资产选择录制、执行或分析流程。"
