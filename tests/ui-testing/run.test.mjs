@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { UiRunService, sha256 } from '../../packages/ui-testing/dist/index.js';
-import { prepareDiagnostic, decision } from '../support/ui-design-fixture.mjs';
+import { prepareDiagnostic, decision, validCode } from '../support/ui-design-fixture.mjs';
 import { artifact } from '../support/ui-artifacts.mjs';
 import { until } from '../support/fixture.mjs';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
@@ -99,6 +99,33 @@ test('UI-07: cancellation retains interrupted run and refuses a fresh request wi
   const replay=await service.start(request);assert.equal(replay.replayed,true);
   await assert.rejects(service.start({...request,request_id:'new-id-after-cancel'}),/不能重复启动/);
   assert.equal(f.fixture.state.browserRequests,before,'unknown run cannot be replayed under a new id');
+});
+
+test('UI-10 A08: interrupt after an observed Save preserves uncertainty and never replays the business write',{timeout:60000},async t=>{
+  const testCode="import {writeFileSync} from 'node:fs';\n"+validCode.replace(
+    "await page.getByRole('button',{name:'Save'}).click();",
+    "await page.getByRole('button',{name:'Save'}).click();"+
+    "if(process.env.PI_UI_AFTER_SAVE_MARKER){const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('names')||'[]'));"+
+    "writeFileSync(process.env.PI_UI_AFTER_SAVE_MARKER,JSON.stringify({submitted:key,saved}));await new Promise(()=>{});}"
+  );
+  const {f,service,request}=await ready(t,{testCode}),abort=new AbortController();
+  const previous=process.env.PI_UI_AFTER_SAVE_MARKER,marker=join(f.root,'observed-save.json');
+  t.after(()=>{if(previous===undefined)delete process.env.PI_UI_AFTER_SAVE_MARKER;else process.env.PI_UI_AFTER_SAVE_MARKER=previous;});
+  process.env.PI_UI_AFTER_SAVE_MARKER=marker;
+  const running=service.start(request,abort.signal);
+  // 等待浏览器实际完成写入；仅等待 runner 进程出现不能证明业务操作发生。
+  try{
+    await until(async()=>{try{return JSON.parse(await readFile(marker,'utf8')).saved.length===1;}catch{return false;}},20000);
+  }finally{abort.abort();}
+  const result=await running,observed=JSON.parse(await readFile(marker,'utf8'));
+  assert.deepEqual(observed.saved,[observed.submitted]);
+  assert.equal(result.run.data.state,'interrupted');assert.equal((await summary(f,result)).status,'cancelled');
+  const before=f.fixture.state.browserRequests;
+  const restored=new UiRunService(f.root,f.authority);
+  assert.equal((await restored.start(request)).replayed,true);
+  await assert.rejects(restored.start({...request,request_id:'new-request-after-observed-write'}),/不能重复启动/);
+  assert.equal(f.fixture.state.browserRequests,before,'both reads and rejected replacement leave original business effects untouched');
+  assert.deepEqual(JSON.parse(await readFile(marker,'utf8')),observed);
 });
 
 test('UI-07: native global timeout preserves actual timeout and leaves the run for reconciliation',{timeout:60000},async t=>{

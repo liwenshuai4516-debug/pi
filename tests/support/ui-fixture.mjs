@@ -64,12 +64,13 @@ export function textContent(message) {
 }
 
 /** 将选中配置复制到隔离目录，绝不加载用户扩展或改写原始模型/凭据文件。 */
-export async function copyLiveModel(agentDir, sourceDir) {
+export async function copyLiveModel(agentDir, sourceDir, selection) {
   const settings = JSON.parse(await readFile(join(sourceDir, 'settings.json'), 'utf8'));
   const models = JSON.parse(await readFile(join(sourceDir, 'models.json'), 'utf8'));
   const auth = JSON.parse(await readFile(join(sourceDir, 'auth.json'), 'utf8'));
-  const provider = settings.defaultProvider, modelId = settings.defaultModel;
+  const {provider,modelId} = selection ?? {provider:settings.defaultProvider,modelId:settings.defaultModel};
   if (!models.providers?.[provider] || !modelId) throw new Error('缺少可复制的自定义模型配置');
+  if (!(models.providers[provider].models??[]).some(model=>model.id===modelId)) throw new Error('选定模型不在现有自定义配置中');
   await writeFile(join(agentDir, 'models.json'), JSON.stringify({ providers: { [provider]: models.providers[provider] } }), { mode: 0o600 });
   await writeFile(join(agentDir, 'auth.json'), JSON.stringify(auth[provider] ? { [provider]: auth[provider] } : {}), { mode: 0o600 });
   await chmod(join(agentDir, 'models.json'), 0o600);

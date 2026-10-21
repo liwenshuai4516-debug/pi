@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "label_origin": "Machine-authored expectations grounded in the controlled fixture R1 and original Playwright reporter; not human annotations.",
+  "repetitions": 3,
+  "samples": [
+    {"id":"design-grounded","reviewer":"design","partition":"development","expected":"approved","reason":"R1 requires the exact original generated Name after Save and reload."},
+    {"id":"design-uppercase","reviewer":"design","partition":"development","expected":"rejected","blocking_rule":"D2","reason":"R1 explicitly prohibits normalization; uppercase is an invented requirement."},
+    {"id":"result-unknown","reviewer":"result","partition":"development","expected":"approved","reason":"Original reporter proves persistence assertion failure; internal root cause remains unknown."},
+    {"id":"result-deadlock","reviewer":"result","partition":"development","expected":"rejected","blocking_rule":"R4","reason":"No original evidence establishes a database deadlock."},
+    {"id":"design-lowercase","reviewer":"design","partition":"heldout","expected":"rejected","blocking_rule":"D2","reason":"A previously unused lowercase expectation also contradicts the original unnormalized Name requirement."},
+    {"id":"result-cache-cause","reviewer":"result","partition":"heldout","expected":"rejected","blocking_rule":"R4","reason":"No original evidence establishes a confirmed Redis cache invalidation defect."}
+  ]
+}

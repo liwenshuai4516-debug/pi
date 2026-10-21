@@ -40,7 +40,7 @@ export async function setup(t,options) {
     asset.data.content_sha256=assetDigest(asset);const assetRef=await store.put(asset);
     return {asset,assetRef,scriptRef,cases:c,casesRef};
   };
-  const candidate=await make();
+  const candidate=await make('v1',options?.testCode??validCode);
   const task=artifact('task',{intent:'record',scope_ref:scopeRef,state:'running',stage:'design-review',completed_stages:['discover-record','case-design'],
     input_sha256:sha256('design names'),asset_refs:[],run_ids:[],output_refs:[],blockers:[]});
   const taskRef=await store.put(task);
@@ -64,8 +64,8 @@ export function decision(input,kind='approved',improvement=input.previous?'impro
 }
 export const response = input => ({raw:JSON.stringify(decision(input)),provider:'fixture',model:'protocol'});
 
-export async function prepareDiagnostic(t,{targetFault=false,globalSetupSource}={}) {
-  const f=await setup(t,{discardPersistence:targetFault}),broken=await setupUiFixture({discardPersistence:true});t.after(()=>broken.close());
+export async function prepareDiagnostic(t,{targetFault=false,globalSetupSource,testCode}={}) {
+  const f=await setup(t,{discardPersistence:targetFault,testCode}),broken=await setupUiFixture({discardPersistence:true});t.after(()=>broken.close());
   const base='qa/ui/assets/names/revisions/v1/probes';
   const setupRef=globalSetupSource?await f.store.putFile(`${base}/global-setup.mjs`,globalSetupSource):undefined;
   const config=await f.store.putFile(`${base}/base.config.mjs`,

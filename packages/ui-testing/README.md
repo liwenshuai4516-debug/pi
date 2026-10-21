@@ -201,3 +201,13 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 验证见 `tests/ui-testing/workflow.test.mjs`：独立进程完全退出后新进程新会话发现原批准并产生新 run，工具日志无录制/生成/重审；只分析旧失败和查看证据的路径没有新增浏览器请求；仅录制、新建交接、阶段门禁、能力缺失、版本不兼容、未知启动及阶段报告均有检查。`recording.test.mjs` 还把真实 MCP 自动录制交接至设计获批，确认未启动正式执行。这些受控协议测试不代替 UI-10 的真实模型自主工作流及重复校准。
 
 构建后可另运行 `node tests/electron/ui-workflow.mjs`：通过真实 Electron 窗口的隔离 IPC 创建会话并执行，完全退出客户端及子进程后重开、新建会话，复用构建包和原批准生成新 run。证据在 `evidence/ui-testing/ui-09/<timestamp>/`；环境、认证、浏览器数据均使用临时配置，不修改用户目录。
+
+### UI-10 独立重复校准
+
+构建后运行 `PI_UI_CALIBRATION_LIVE=1 node --test tests/ui-testing/review-calibration.test.mjs`。复用现有独立 reviewer、模型注册和浏览器 fixture，无新增运行时依赖。普通 `npm test` 默认跳过该外部模型测试。
+
+样本及期望在 `tests/support/ui-review-calibration.json` 中声明，运行前冻结到 `evidence/ui-testing/ui-10/<timestamp>/frozen-samples.json`。6 个样本各独立重复 3 次，覆盖合理设计、未知根因的诚实失败报告及无依据的预期/归因，并分开记录 development/heldout；每次使用新 Agent 上下文和显式独立校准任务，不继承评估历史。每个模型调用最多 120 秒，失败不自动重试。原始输入、模型输出、逐轮结果、耗时及业务证据均保留，汇总误拒、关键漏检和调用/解析错误；拒绝错误样本还须包含对应阻断规则。
+
+默认复制 `~/.pi/agent` 当前选中的自定义模型到隔离目录；可通过 `PI_UI_MODEL_DIR` 指定配置来源，通过同时设置 `PI_UI_PROVIDER` 与 `PI_UI_MODEL` 选择该目录中已经配置的其他模型，不改写原配置。连续 3 次模型错误后停止，剩余样本明确记为未尝试。模型错误与有效拒绝分开统计；没有有效样本时错误率为不适用，不能声称零漏检。
+
+本组期望由受控需求 R1 和原始 reporter 推导，尚非人工标注。fixture 准备资产中的协议批准仅服务测试数据准备，不能作为本组真实模型批准或自主生成证据。校准测试也不替代真实模型完整录制、生成、执行、结果评估和重启复用验收；M3 状态以实施计划和验收记录为准。

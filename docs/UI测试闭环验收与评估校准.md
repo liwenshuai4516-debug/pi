@@ -1,0 +1,66 @@
+# UI 测试闭环验收与评估校准
+
+更新：2026-10-21。UI-10 进行中，M3 尚未通过。本记录区分机制验证、真实浏览器验证和真实模型质量；不把已完成的 UI-01 至 UI-09 接线测试外推为模型自主闭环已可用。
+
+## 1. 复用与本次新增范围
+
+复用 Pi 1.2.0 的直接 `Agent`、`ModelRuntime`，既有 DesignReviewService/ResultReviewService、Playwright 1.62.1 及受控页面 fixture。只新增校准样本清单、显式外部模型测试和验收证据索引，不增加生产执行器、服务、依赖或界面。
+
+入口为 `tests/ui-testing/review-calibration.test.mjs`，样本清单为 `tests/support/ui-review-calibration.json`，命令及配置选择见[能力包说明](../packages/ui-testing/README.md#ui-10-独立重复校准)。普通回归默认跳过外部模型调用。
+
+## 2. 样本与独立性
+
+本组使用需求 R1：新 context、无导入状态，输入独立生成的 Name，保存并刷新后列表恰好包含原值，不做大小写归一化。结果样本来自真实 Playwright 断言失败、截图和 trace；它们证明 UI 持久化失败，不证明数据库或缓存根因。
+
+| 样本 | 分组 | 期望 | 依据 |
+|---|---|---|---|
+| design-grounded | development | 批准 | 与原始 R1 和参数化脚本一致 |
+| design-uppercase | development | 拒绝，包含阻断 D2 | 大写预期违背原值要求 |
+| result-unknown | development | 批准 | 如实保留失败，内部根因未知 |
+| result-deadlock | development | 拒绝，包含阻断 R4 | 无证据确认数据库死锁 |
+| design-lowercase | heldout | 拒绝，包含阻断 D2 | 保留变体：小写预期同样违背原值要求 |
+| result-cache-cause | heldout | 拒绝，包含阻断 R4 | 保留变体：无证据确认 Redis 缓存失效缺陷 |
+
+每个样本 3 次显式独立任务；每次新建无工具 Agent、不继承生成者或前次评估的消息。设计评估使用独立 task，结果评估使用独立权限记录目录；不是更换 ID 绕过某次业务修订预算。样本和期望在模型调用前保存原始字节与摘要，本轮不据输出调整规则。保留样本已被执行后不得再宣称未见；若后续据其反馈调整规则，需要另外保留新样本。
+
+**当前标签是依据受控需求编写的机器标签，尚未完成人工复核。** 人工操作耗时基线也未提供；只记录实测调用时间，不宣称提效比例。fixture 初始化中的协议批准用于准备数据，不能计为本组真实模型评估或自主用例生成。
+
+## 3. 已保留的真实模型尝试
+
+证据根目录均为工作区 `evidence/ui-testing/ui-10/`，不提交凭据或外部账号配置。每个批次保留冻结样本、输入、原始回复、结果/错误、耗时和原始 qa/ui 业务证据。
+
+| 批次 | 模型配置 | 实际结果 | 结论 |
+|---|---|---|---|
+| `1792563017399` | deepseek / deepseek-v4-pro | 18 次中前两次合理设计获批，后 16 次模型返回 error，无有效评估；初版未保存错误分类 | 失败；不能将空回复当作拒绝，也不足以判断负例漏检率 |
+| `1792563153275` | deepseek / deepseek-v4-pro | 3 次均为 HTTP 402、quota-or-balance；连续错误后停止，其余 15 次未尝试 | 外部额度/余额阻塞已确认；未宣称校准通过 |
+| `1792563388380` | deepseek / deepseek-flash | 用户授权换模后 3 次仍为 HTTP 402、quota-or-balance，停止并保留其余 15 次未尝试 | 更换模型未解除额度阻塞；当前未发现其他已配置 provider |
+
+发现初版诊断信息不足后，测试只增加无凭据的错误类别/状态码及连续错误停止策略，不修改 reviewer 规则或样本期望。用户授权后使用现有 `deepseek / deepseek-flash` 配置验证，仍被额度阻塞；未修改用户原始默认设置，未自动开通其他服务。继续真实模型验收需要恢复可用额度或提供已配置且获授权的可用模型。
+
+## 4. M3 验收矩阵逐项核对
+
+下表中的测试文件是可复现入口；实际结果以本节之后的运行记录为准。“机制覆盖”不表示对应真实模型自主路径已验收。
+
+| 编号 | 当前证据与实际断言 | 尚需验证 |
+|---|---|---|
+| A01 首次无资产 | `recording.test.mjs` 真 MCP/Chromium 动作、日志、可回放脚本、设计批准及 record-only 停止；驱动为协议 fixture | 真实模型通过生产 Skills 自主生成用例/断言及获批 |
+| A02 干净执行 | `run.test.mjs` 新 context、新批次、冻结计划及实际 A1 assertion step；`environment.test.mjs` 检查数据隔离 | 与 A01 同一真实模型主链连通 |
+| A03 完全退出复用 | `workflow.test.mjs` 两个独立进程；实际 Electron 重启证据 `ui-09/1792562498611`，不同会话/不同 run、无录制/设计调用 | 真实模型主链产物的桌面重启复用 |
+| A04 拒绝和篡改 | `design.test.mjs` 拒绝/伪批准/陈旧脚本及规则、引用篡改阻断；`store.test.mjs` 脚本与共享 helper 摘要变化不可加载 | 校准验证模型对错误设计的语义判断 |
+| A05 正常/错误行为 | `run.test.mjs` 正常退出 0；受控坏页面退出 1、真实失败 A1、截图及 trace。`result-review.test.mjs` 保留失败/未知根因的完整报告 | 真实模型端到端失败分析及独立结果批准 |
+| A06 对账和幻觉 | `results.test.mjs` 缺计划实例、外来截图、已通过但未到断言、平衡伪造数字；`result-review.test.mjs` 错批次截图和报告篡改拦截 | 无依据归因的独立重复真实模型校准 |
+| A07 半成品/索引 | `store.test.mjs` 附件已落盘但无 manifest 时不可加载；索引删除/损坏后重建完整资产 | 机制覆盖，不能声称恢复了未完成对象 |
+| A08 写后中断 | 新增 `run.test.mjs` 的 `UI-10 A08`：浏览器 Save 后读取 localStorage，独立标记证明保存已发生，再取消；新服务读原请求，无新浏览器请求，新 ID 重放被拒 | 完整业务核对/续跑按 UI-11 单独验收；当前仅安全阻断 |
+| A09 旧证据分析 | `workflow.test.mjs` analyze/view 保持浏览器请求数不变，错批次报告拒绝，缺 trace 交付明确 partial | 原生 trace 查看交互仍需专门核对；不能把“文件存在”当成已查看 |
+| A10 认证/缺工具/取消 | `environment.test.mjs` 失效 storageState 及清理残留；`run.test.mjs` 身份预检阻断/取消，`workflow.test.mjs` 能力缺失/版本冲突保存 blocked | 机制覆盖；真实环境只证明当前受控身份样例 |
+| A11 单一输入来源 | `recording.test.mjs` 源码发现/草稿无浏览器动作，禁止源码冒充 explored；browser 观察及未探索范围单独保存 | 真实模型对未见角色/模块的结论不外推仍须主链检查 |
+| A12 循环不收敛 | `design.test.mjs`/`result-review.test.mjs` 最多 3 次、无改善提前阻断、坏引用耗预算、未批准不可交付完整报告 | 机制覆盖；不能用预算耗尽代替批准 |
+
+## 5. 本轮确定性和浏览器验证
+
+- `npm run check` 通过。
+- `npm test`：96 项通过、4 项显式外部模型测试默认跳过；包含本次新增校准入口。此轮启动于 A08 新测试加入之前，不包含该专项。
+- `node --test --test-name-pattern='UI-10 A08' tests/ui-testing/run.test.mjs`：新增真实保存后取消专项 1 项通过，实测约 8.6 秒。
+- `node --test tests/ui-testing/review-calibration.test.mjs`：配置切换及凭据隔离专项 1 项通过，外部模型专项默认跳过；覆盖默认模型已被移除时的明确拒绝，以及选择另一现有模型时原配置不变、其他 provider 的凭据不复制。
+
+真实模型重复校准、人工样本复核、实际完整主链、trace 查看核对、完整效率基线仍需继续；不得将本记录视为 UI-10 完成或 M3 通过。
