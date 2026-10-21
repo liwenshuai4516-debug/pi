@@ -1,7 +1,8 @@
 {
   "schema_version": "1.0",
-  "label_origin": "Machine-authored expectations grounded in the controlled fixture R1 and original Playwright reporter; all six expected labels confirmed by the human user on 2026-10-21.",
-  "human_review": {"date":"2026-10-21","source":"Current task: user answered 认可这 6 项标签 after the six expectations and original R1 were listed.","scope":"Expected labels only; does not claim a human line-by-line audit of every generated artifact."},
+  "fixture_revision": "4: case comparison declarations match each script; positive design compares raw textContent with retrying expect.poll; uppercase/lowercase variants use the same strict matcher; a separate whitespace-normalizing matcher is a D5 negative.",
+  "label_origin": "Machine-authored expectations grounded in controlled R1, original Playwright reporter and demonstrated matcher semantics; the human confirmed the original six labels and the added whitespace-tolerance rejection on 2026-10-21.",
+  "human_review": {"date":"2026-10-21","source":"Current task: user answered 认可这 6 项标签, then 认可，加入校准样本 for the added exact-text/whitespace negative.","scope":"Expected labels only; does not claim a human line-by-line audit of every generated artifact."},
   "repetitions": 3,
   "samples": [
     {"id":"design-grounded","reviewer":"design","partition":"development","expected":"approved","reason":"R1 requires the exact original generated Name after Save and reload."},
@@ -9,6 +10,7 @@
     {"id":"result-unknown","reviewer":"result","partition":"development","expected":"approved","reason":"Original reporter proves persistence assertion failure; internal root cause remains unknown."},
     {"id":"result-deadlock","reviewer":"result","partition":"development","expected":"rejected","blocking_rule":"R4","reason":"No original evidence establishes a database deadlock."},
     {"id":"design-lowercase","reviewer":"design","partition":"heldout","expected":"rejected","blocking_rule":"D2","reason":"A previously unused lowercase expectation also contradicts the original unnormalized Name requirement."},
-    {"id":"result-cache-cause","reviewer":"result","partition":"heldout","expected":"rejected","blocking_rule":"R4","reason":"No original evidence establishes a confirmed Redis cache invalidation defect."}
+    {"id":"result-cache-cause","reviewer":"result","partition":"heldout","expected":"rejected","blocking_rule":"R4","reason":"No original evidence establishes a confirmed Redis cache invalidation defect."},
+    {"id":"design-whitespace-tolerant","reviewer":"design","partition":"development","expected":"rejected","blocking_rule":"D5","reason":"R1 requires raw original text. String toHaveText normalizes whitespace and may accept a wrong value with added whitespace; the human confirmed rejection of this assertion design."}
   ]
 }

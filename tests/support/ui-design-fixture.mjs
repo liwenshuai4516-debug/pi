@@ -31,7 +31,9 @@ export async function setup(t,options) {
     const c=cases();c.id=`cases-${revision}`;c.data.scope_ref=scopeRef;c.data.sources=s.data.sources;c.data.data_rules_ref=dataRules;
     c.data.gaps=['Boundary/invalid-input scenarios are outside the selected persistence scope and remain untested.'];
     c.data.cases[0].preconditions=['Fresh non-persistent context, empty localStorage, no imported storageState; only the owned generated Name is saved.'];
-    c.data.cases[0].assertions[0].expected={from:'generated input key'};change(c);
+    c.data.cases[0].assertions[0].expected={from:'generated input key'};
+    if(options?.comparison)c.data.cases[0].assertions[0].comparison=options.comparison;
+    change(c);
     const casesRef=await store.put(c);
     const scriptRef=await store.putFile(`qa/ui/assets/names/revisions/${revision}/name.spec.ts`,code);
     const asset=artifact('asset',{revision,module_ids:['names'],scope_ref:scopeRef,inventory_ref:inventoryRef,cases_ref:casesRef,
@@ -64,8 +66,8 @@ export function decision(input,kind='approved',improvement=input.previous?'impro
 }
 export const response = input => ({raw:JSON.stringify(decision(input)),provider:'fixture',model:'protocol'});
 
-export async function prepareDiagnostic(t,{targetFault=false,globalSetupSource,testCode}={}) {
-  const f=await setup(t,{discardPersistence:targetFault,testCode}),broken=await setupUiFixture({discardPersistence:true});t.after(()=>broken.close());
+export async function prepareDiagnostic(t,{targetFault=false,globalSetupSource,testCode,comparison}={}) {
+  const f=await setup(t,{discardPersistence:targetFault,testCode,comparison}),broken=await setupUiFixture({discardPersistence:true});t.after(()=>broken.close());
   const base='qa/ui/assets/names/revisions/v1/probes';
   const setupRef=globalSetupSource?await f.store.putFile(`${base}/global-setup.mjs`,globalSetupSource):undefined;
   const config=await f.store.putFile(`${base}/base.config.mjs`,

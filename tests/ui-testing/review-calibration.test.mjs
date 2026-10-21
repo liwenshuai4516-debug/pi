@@ -4,11 +4,29 @@ import { readFile, writeFile, mkdir, cp, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { Agent } from '@earendil-works/pi-agent-core';
+import { chromium, expect } from 'playwright/test';
 import { ModelRuntime, convertToLlm } from '@earendil-works/pi-coding-agent';
-import { assetDigest, sha256, ResultReviewService } from '../../packages/ui-testing/dist/index.js';
+import { assetDigest, sha256, ResultReviewService, checkDesign } from '../../packages/ui-testing/dist/index.js';
 import { prepareDiagnostic, validCode } from '../support/ui-design-fixture.mjs';
 import { resultFixture } from '../support/ui-result-fixture.mjs';
 import { copyLiveModel, repoRoot, textContent } from '../support/ui-fixture.mjs';
+
+const strictCode=validCode.replace("expect(page.getByRole('listitem')).toHaveText([key])",
+  "expect.poll(()=>page.getByRole('listitem').allTextContents()).toEqual([key])");
+const strictComparison='expect.poll(allTextContents).toEqual: exact original textContent array, without whitespace normalization';
+
+test('UI-10: exact original text oracle rejects whitespace that toHaveText normalizes',async t=>{
+  const browser=await chromium.launch();t.after(()=>browser.close());const page=await browser.newPage();
+  await page.setContent('<ul><li> qa-ABC </li></ul>');
+  await expect(page.getByRole('listitem')).toHaveText(['qa-ABC']);
+  await assert.rejects(expect.poll(()=>page.getByRole('listitem').allTextContents(),{timeout:100}).toEqual(['qa-ABC']));
+  await page.getByRole('listitem').evaluate(element=>element.textContent='qa-ABC');
+  await expect.poll(()=>page.getByRole('listitem').allTextContents()).toEqual(['qa-ABC']);
+  const design=await prepareDiagnostic(t,{testCode:strictCode,comparison:strictComparison});
+  const candidate=await design.f.store.load(design.f.casesRef);
+  assert.equal(candidate.data.cases[0].assertions[0].comparison,strictComparison);
+  assert.deepEqual((await checkDesign(design.f.root,design.assetRef)).issues,[]);
+});
 
 test('UI-10: explicit existing model selection preserves source settings and isolates provider credentials',async t=>{
   const root=await mkdtemp(join(tmpdir(),'ui-calibration-config-'));t.after(()=>rm(root,{recursive:true,force:true}));
@@ -35,15 +53,16 @@ test('UI-10 live: independent repeated design/result calibration preserves all e
   await mkdir(evidence,{recursive:true});
   // 样本及期望先冻结；本次运行不根据模型反馈修改规则或样本。
   await writeFile(join(evidence,'frozen-samples.json'),manifestBytes);
-  const design=await prepareDiagnostic(t),result=await resultFixture(t),f=design.f;
+  const design=await prepareDiagnostic(t,{testCode:strictCode,comparison:strictComparison}),result=await resultFixture(t),f=design.f;
   const selection=process.env.PI_UI_PROVIDER||process.env.PI_UI_MODEL?
     {provider:process.env.PI_UI_PROVIDER,modelId:process.env.PI_UI_MODEL}:undefined;
   const selected=await copyLiveModel(f.fixture.agentDir,process.env.PI_UI_MODEL_DIR??join(homedir(),'.pi/agent'),selection);
   const runtime=await ModelRuntime.create({authPath:join(f.fixture.agentDir,'auth.json'),modelsPath:join(f.fixture.agentDir,'models.json')});
   const model=(await runtime.getAvailable()).find(m=>m.provider===selected.provider&&m.id===selected.modelId);assert.ok(model);
   const summary={schema_version:'1.0',model:selected,manifest_sha256:sha256(manifestBytes),
+    fixture_revision:manifest.fixture_revision,
     label_origin:manifest.label_origin,human_review:manifest.human_review,started_at:new Date().toISOString(),outcomes:[],
-    limitations:['The human confirmed the six expected labels; no human timing baseline or line-by-line artifact audit is claimed.',
+    limitations:['The human confirmed the seven expected labels; no human timing baseline or line-by-line artifact audit is claimed.',
       'Fixture assets were authored by test support; this is reviewer calibration, not autonomous case generation or full M3 acceptance.']};
   let current,consecutiveProviderErrors=0;
   const call=async input=>{
@@ -71,10 +90,12 @@ test('UI-10 live: independent repeated design/result calibration preserves all e
     }finally{clearTimeout(timer);}
   };
   const samples=new Map([['design-grounded',design.assetRef],['result-unknown',result.report_ref]]);
-  for(const [id,method] of [['design-uppercase','toUpperCase'],['design-lowercase','toLowerCase']]){
-    const wrong=await f.make(id,validCode.replace('toHaveText([key])',`toHaveText([key.${method}()])`),c=>{
-      c.data.sources[0].statement=`R1 requires Save to ${method==='toUpperCase'?'uppercase':'lowercase'} every Name.`;
-      c.data.cases[0].assertions[0].expected={from:`${method} of the generated key`};
+  for(const [id,method] of [['design-uppercase','toUpperCase'],['design-lowercase','toLowerCase'],['design-whitespace-tolerant',null]]){
+    const wrong=await f.make(id,method?strictCode.replace('toEqual([key])',`toEqual([key.${method}()])`):validCode,c=>{
+      if(method){
+        c.data.sources[0].statement=`R1 requires Save to ${method==='toUpperCase'?'uppercase':'lowercase'} every Name.`;
+        c.data.cases[0].assertions[0].expected={from:`${method} of the generated key`};
+      }else c.data.cases[0].assertions[0].comparison='toHaveText';
     });
     wrong.asset.id=`names-${id}`;
     wrong.asset.data.files.push(...design.asset.data.files.filter(r=>r.path!==f.scriptRef.path&&!wrong.asset.data.files.some(x=>x.path===r.path)));

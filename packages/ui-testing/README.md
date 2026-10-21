@@ -206,15 +206,15 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 
 构建后运行 `PI_UI_CALIBRATION_LIVE=1 node --test tests/ui-testing/review-calibration.test.mjs`。复用现有独立 reviewer、模型注册和浏览器 fixture，无新增运行时依赖。普通 `npm test` 默认跳过该外部模型测试。
 
-样本及期望在 `tests/support/ui-review-calibration.json` 中声明，运行前冻结到 `evidence/ui-testing/ui-10/<timestamp>/frozen-samples.json`。6 个样本各独立重复 3 次，覆盖合理设计、未知根因的诚实失败报告及无依据的预期/归因，并分开记录 development/heldout；每次使用新 Agent 上下文和显式独立校准任务，不继承评估历史。每个模型调用最多 120 秒，失败不自动重试。原始输入、模型输出、逐轮结果、耗时及业务证据均保留，汇总误拒、关键漏检和调用/解析错误；拒绝错误样本还须包含对应阻断规则。
+样本及期望在 `tests/support/ui-review-calibration.json` 中声明，运行前冻结到 `evidence/ui-testing/ui-10/<timestamp>/frozen-samples.json`。7 个样本各独立重复 3 次（共 21 次），覆盖合理设计、未知根因的诚实失败报告及无依据的预期/归因，并分开记录 development/heldout；每次使用新 Agent 上下文和显式独立校准任务，不继承评估历史。每个模型调用最多 120 秒，失败不自动重试。原始输入、模型输出、逐轮结果、耗时及业务证据均保留，汇总误拒、关键漏检和调用/解析错误；拒绝错误样本还须包含对应阻断规则。
 
 默认复制 `~/.pi/agent` 当前选中的自定义模型到隔离目录；可通过 `PI_UI_MODEL_DIR` 指定配置来源，通过同时设置 `PI_UI_PROVIDER` 与 `PI_UI_MODEL` 选择该目录中已经配置的其他模型，不改写原配置。连续 3 次模型错误后停止，剩余样本明确记为未尝试。模型错误与有效拒绝分开统计；没有有效样本时错误率为不适用，不能声称零漏检。
 
-本组期望由受控需求 R1 和原始 reporter 推导，用户已于 2026-10-21 明确确认六项标签，确认范围登记在清单 human_review 中；不追改此前已冻结的机器标签批次。fixture 准备资产中的协议批准仅服务校准数据准备，不能作为真实模型批准或自主生成证据。校准测试也不替代真实模型完整录制、生成、执行、结果评估和重启复用验收；M3 状态以[闭环验收记录](../../docs/UI测试闭环验收与评估校准.md)为准。
+本组期望由受控需求 R1 和原始 reporter 推导，用户已于 2026-10-21 明确确认原六项标签及新增的首尾空白漏检拒绝标签，确认范围登记在清单 human_review 中；不追改此前已冻结的机器标签批次。fixture 准备资产中的协议批准仅服务校准数据准备，不能作为真实模型批准或自主生成证据。校准测试也不替代真实模型完整录制、生成、执行、结果评估和重启复用验收；M3 状态以[闭环验收记录](../../docs/UI测试闭环验收与评估校准.md)为准。
 
 ### UI-10 完整主链与历史 trace 查看
 
-构建后显式运行 `PI_UI_FULL_LIVE=1 node --test tests/ui-testing/full-workflow-live.test.mjs`；模型配置来源和 `PI_UI_PROVIDER` / `PI_UI_MODEL` 选择方式与校准入口相同。只有模型实际可用时才能继续主链；普通回归跳过该项。入口准备隔离需求、环境、归属 seed 和正反目标，由模型通过生产 Skills 自主录制、生成用例/断言、独立设计评估及诊断，再验证正常执行/报告、完全退出子进程后复用和受控故障的失败报告。准备阶段最多 20 分钟，其余子进程阶段最多 10 分钟，每阶段最多 100 次工具调用，不自动重发。录制预算在输入中明确为最多 30 步、10 分钟，不能在同一任务中重置预算。保存实际调用、原始回复、阶段耗时和 qa/ui；任何失败都不会标记 M3 完成。新增 `tests/support/ui-workflow-desktop.mjs` 通过真实 Electron/preload/IPC 先查询目录，完全退出全部子进程后新会话执行同一资产；该分支及整体成功路径仍须实际通过才可登记验收。
+构建后显式运行 `PI_UI_FULL_LIVE=1 node --test tests/ui-testing/full-workflow-live.test.mjs`；模型配置来源和 `PI_UI_PROVIDER` / `PI_UI_MODEL` 选择方式与校准入口相同。只有模型实际可用时才能继续主链；普通回归跳过该项。入口准备隔离需求、环境、归属 seed 和正反目标，由模型通过生产 Skills 自主录制、生成用例/断言、独立设计评估及诊断，再验证正常执行/报告、完全退出子进程后复用和受控故障的失败报告。准备阶段最多 20 分钟，其余子进程阶段最多 10 分钟，这些 Agent 子进程每阶段最多 100 次工具调用（桌面分支仅设 10 分钟限时），不自动重发。录制预算在输入中明确为最多 30 步、10 分钟，不能在同一任务中重置预算。保存实际调用、原始回复、阶段耗时和 qa/ui；任何失败都不会标记 M3 完成。新增 `tests/support/ui-workflow-desktop.mjs` 通过真实 Electron/preload/IPC 先查询目录，完全退出全部子进程后新会话执行同一资产；旧规则版本已通过该分支及整体成功路径，详见验收记录；规则更新后的结果另行登记。
 
 历史证据查看通过 `node --test tests/ui-testing/trace-view.test.mjs` 验证：复用 Playwright `show-trace` CLI 与原生 Trace Viewer，由真实 Chromium 打开历史失败并选择断言；仅允许访问本地 viewer，核对业务请求数不增加、原始 trace/run 未改变。证据在 `evidence/ui-testing/ui-10/trace-view/`。viewer 使用独立临时进程并在收尾关闭，不创建新的产品报告查看器。
 
