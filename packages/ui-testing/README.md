@@ -132,7 +132,7 @@ browser_type 只接受预先声明的公开合成 test_data，或当前 recordin
 
 诊断不改候选脚本和预期值，不重试业务操作。它逐 case 对账原生报告：正对照的映射断言步骤全部通过；错误副本的指定 expect 步骤实际失败；启动/导航失败、超时、预期失败、重试、非目标失败和未确认清理的残留均不能冒充检错证明；明确约定保留的数据仍如实留证。配置、输入、报告、退出码和附件摘要位于修订下 `diagnostics/<id>/`，显式标记 `formal_run:false`；脚本/输入中途变化会保留证据并阻断。
 
-`ui_design_diagnose` 通过 `{request:{operation:"diagnose",asset_ref,review_ref,spec_ref,request_id}}` 调用 `RuntimeAdmissionService.diagnose`；先验证可信设计批准，再保存请求状态、运行原生诊断并登记私有运行证明。相同请求返回原结果；输入变化、并发调用和未知执行阻断。`operation:"status"` 只读旧请求，重启后不重放浏览器。直接调用底层库得到 `validated` 或自行写项目 JSON 都不能取得可信登记。
+`ui_design_diagnose` 可先用 `{request:{operation:"schema"}}` 读取与 CLI 共用的诊断计划结构，不读写工作区、不启动浏览器，也不要求 shell 读取安装目录。通过 `{request:{operation:"diagnose",asset_ref,review_ref,spec_ref,request_id}}` 调用 `RuntimeAdmissionService.diagnose`；先验证可信设计批准，再保存请求状态、运行原生诊断并登记私有运行证明。相同请求返回原结果；输入变化、并发调用和未知执行阻断。`operation:"status"` 只读旧请求，重启后不重放浏览器。直接调用底层库得到 `validated` 或自行写项目 JSON 都不能取得可信登记。
 
 未知诊断仅阻断模块集合有交集的资产，原范围及记录保留；旧请求没有模块信息时保守阻断。首期浏览器诊断仍串行，不表示已实现并发调度。独立 reviewer 默认关闭思考，单次调用限时 120 秒；取消、超时和无效响应不授予批准，并保留输入/响应引用。
 

@@ -11,7 +11,7 @@ description: 对 UI 候选调用独立只读 Agent，按 D1–D10 审查来源�
 
 approved 仅表示当前修订的设计批准。源码-only 仍无运行就绪证明；任何脚本/来源/helper/fixture/config/依赖版本变化都要重新校验和必要重审。运行就绪及正式执行由独立门禁判定，不能用聊天中的“通过”替代。模块受阻时保留原清单和范围，不静默缩小分母。
 
-需要进入运行阶段时，先准备诊断计划并在评估前纳入候选 files。用包 CLI `schema diagnostic-spec` 查询结构：environment_ref 是当前目标；config_ref 是原生 Playwright 配置；probes 指定隔离错误副本的环境、变异来源和 assertion_ids。每条断言至少有一个合理错误结果探针，脚本和预期值保持不变。需要已知正常副本做正对照时填写 control_environment_ref；它不能替代目标环境的身份/初态检查，也不代表当前产品通过测试。所有配置、环境和变异来源进入修订与独立审查，不能在获批后临时换入。
+需要进入运行阶段时，先准备诊断计划并在评估前纳入候选 files。调用 `ui_design_diagnose` 的 `{request:{operation:"schema"}}` 查询结构，不需要通过 shell 读取安装目录或提升权限：environment_ref 是当前目标；config_ref 是原生 Playwright 配置；probes 指定隔离错误副本的环境、变异来源和 assertion_ids。每条断言至少有一个合理错误结果探针，脚本和预期值保持不变。需要已知正常副本做正对照时填写 control_environment_ref；它不能替代目标环境的身份/初态检查，也不代表当前产品通过测试。所有配置、环境和变异来源进入修订与独立审查，不能在获批后临时换入。
 
 设计获批后调用 `ui_design_diagnose`，参数 `{request:{operation:"diagnose",asset_ref,review_ref,spec_ref,request_id}}`。工具先检查可信批准，再用原生 Playwright 执行正反对照、保存非正式诊断证据，并登记 runtime_ready。没有合理错误副本时保留“设计通过、运行未就绪”，不能放宽断言或伪造证明。
 

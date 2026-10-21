@@ -287,6 +287,16 @@ test('UI-06: actual Pi review and diagnostic tools register readiness and a new 
   await new PluginManager(f.fixture.agentDir,f.root).install(join(repoRoot,'packages/ui-testing'),'package');
   let host=new AgentHost(()=>{},()=>{},f.fixture.agentDir);t.after(()=>host.dispose());
   const view=await host.create(f.root,true);let calls=0,reviewRef,diagnostic;
+  const beforeSchema=f.fixture.state.browserRequests;let schemaCalls=0,schema;
+  f.fixture.state.respond=body=>{
+    if(schemaCalls++===0)return {tool:'ui_design_diagnose',args:{request:{operation:'schema'}}};
+    schema=JSON.parse(textContent(body.messages.filter(m=>m.role==='tool').at(-1).content));
+    return {text:'Diagnostic schema read without executing a browser or shell.'};
+  };
+  await host.send(view.id,'Read the diagnostic plan schema only, without running commands or browsers.',[],[]);
+  assert.equal(schema.status,'completed');assert.equal(schema.output.additionalProperties,false);
+  assert.ok(schema.output.required.includes('probes'));assert.ok(schema.output.properties.probes.items.required.includes('assertion_ids'));
+  assert.equal(f.fixture.state.browserRequests,beforeSchema);
   f.fixture.state.respond=body=>{
     if(body.messages.some(m=>m.role==='system'&&JSON.stringify(m.content).includes('你是独立 UI 测试设计评估者'))){
       const user=body.messages.find(m=>m.role==='user');return {text:JSON.stringify(decision(JSON.parse(typeof user.content==='string'?user.content:textContent(user.content))))};
