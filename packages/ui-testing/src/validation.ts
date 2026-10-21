@@ -6,7 +6,7 @@ import { schemas, capabilityResultSchema, type CapabilityResult, type Artifact, 
 export * from './contracts.js';
 
 export class WorkflowError extends Error {
-  constructor(readonly category: ErrorCategory, message: string, readonly recoverable = false) { super(message); }
+  constructor(readonly category: ErrorCategory, message: string, readonly recoverable = false, readonly artifact_refs: FileRef[] = []) { super(message); }
 }
 const ajv = new Ajv({ allErrors: true, strict: true });
 const validators = Object.fromEntries(Object.entries(schemas).map(([key, schema]) => [key, ajv.compile(schema)]));

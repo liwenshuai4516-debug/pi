@@ -7,7 +7,7 @@ import { assertPortablePath, WorkflowError } from './validation.js';
 export function registerDesignTools(pi: ExtensionAPI) {
   const id = Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' });
   const failure = (capability: string, error: unknown) => {
-    const result = { schema_version: '1.0', capability_id: capability, capability_version: '0.1.0', status: 'blocked', artifact_refs: [],
+    const result = { schema_version: '1.0', capability_id: capability, capability_version: '0.1.0', status: 'blocked', artifact_refs: error instanceof WorkflowError ? error.artifact_refs : [],
       errors: [{ category: error instanceof WorkflowError ? error.category : 'runner-error',
         message: error instanceof Error ? error.message : String(error), recoverable: false }] };
     return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], details: result };
@@ -45,6 +45,32 @@ export function registerDesignTools(pi: ExtensionAPI) {
     },
   });
   pi.registerTool({
+    name: 'ui_design_diagnose', label: 'UI 设计诊断与运行登记',
+    description: '对可信设计批准执行隔离 Playwright 正反对照并登记运行证明。请求去重；未知执行不重放。status 只读旧请求。诊断不是正式业务测试。',
+    parameters: Type.Object({ request: Type.Union([
+      Type.Object({ operation: Type.Literal('diagnose'), asset_ref: fileRefSchema, review_ref: fileRefSchema,
+        spec_ref: fileRefSchema, request_id: id }),
+      Type.Object({ operation: Type.Literal('status'), request_id: id }),
+    ]) }),
+    async execute(_id, { request }, signal, _update, ctx) {
+      try {
+        const [{ RuntimeAdmissionService }, { join }] = await Promise.all([import('./runtime-admission.js'), import('node:path')]);
+        const service = new RuntimeAdmissionService(ctx.cwd, join(ctx.sessionManager.getSessionDir(), 'ui-review-authority'));
+        if (request.operation === 'status') {
+          const result = await service.status(request.request_id);
+          return success('ui-design-diagnose', [result.input_ref, result.summary_ref].filter((r): r is FileRef => !!r), result);
+        }
+        const result = await service.diagnose(request.asset_ref, request.review_ref, request.spec_ref, request.request_id, signal);
+        if (result.runtime_ready) return success('ui-design-diagnose', [result.summary_ref], result);
+        const output = { schema_version: '1.0', capability_id: 'ui-design-diagnose', capability_version: '0.1.0',
+          status: result.status === 'cancelled' ? 'cancelled' : 'blocked', artifact_refs: [result.summary_ref],
+          errors: [{ category: result.status === 'cancelled' ? 'cancelled' : 'precondition',
+            message: '诊断未满足运行登记条件，保留原始证据；先检查报告和数据状态', recoverable: false }], output: result };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(output) }], details: output };
+      } catch (error) { return failure('ui-design-diagnose', error); }
+    },
+  });
+  pi.registerTool({
     name: 'ui_design_review', label: '独立 UI 设计评估',
     description: '使用当前模型、全新只读 Agent 和原始文件证据按 D1–D10 评估；只接受候选/任务引用，不接受生成者自报决定。最多三次、保留问题与版本。设计批准不等于运行就绪。',
     parameters: Type.Object({ task_ref: fileRefSchema, asset_ref: fileRefSchema, request_id: id }),
@@ -63,7 +89,7 @@ export function registerDesignTools(pi: ExtensionAPI) {
           const reviewer = new Agent({ initialState: { model, tools: [], messages: [], thinkingLevel: 'off',
             systemPrompt },
             convertToLlm, streamFn: (m, context, options) => ctx.modelRegistry.streamSimple(m, context, options) });
-          const abort = () => reviewer.abort(), timer = setTimeout(abort, 60000);
+          const abort = () => reviewer.abort(), timer = setTimeout(abort, 120000);
           signal?.addEventListener('abort', abort, { once: true });
           try { await reviewer.prompt(JSON.stringify(facts)); }
           finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }

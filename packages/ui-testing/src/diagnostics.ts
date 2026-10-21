@@ -9,11 +9,12 @@ import { Ajv } from 'ajv';
 import { Type, type Static } from 'typebox';
 import { fileRefSchema, type Artifact, type FileRef } from './contracts.js';
 import { ArtifactStore } from './store.js';
-import { authState, validateEnvironment } from './environment.js';
+import { authState, validateEnvironment, type UiEnvironment } from './environment.js';
 import { sha256, verifyReferences, workspacePath, WorkflowError } from './validation.js';
 
 export const diagnosticSpecSchema = Type.Object({
   environment_ref: fileRefSchema, config_ref: fileRefSchema,
+  control_environment_ref: Type.Optional(fileRefSchema),
   timeout_ms: Type.Integer({ minimum: 1000, maximum: 120000 }),
   probes: Type.Array(Type.Object({ id: Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' }),
     environment_ref: fileRefSchema, config_ref: fileRefSchema,
@@ -34,6 +35,33 @@ type NativeSpec = { title: string; file: string; tests: NativeTest[] };
 type NativeSuite = { specs: NativeSpec[]; suites?: NativeSuite[] };
 type NativeReport = { errors: unknown[]; suites: NativeSuite[] };
 const steps = (input: Step[]): Step[] => input.flatMap(s => [s, ...steps(s.steps ?? [])]);
+
+async function preflight(root: string, env: UiEnvironment, timeout: number, signal?: AbortSignal) {
+  const { chromium, expect } = createRequire(join(root, 'package.json'))('playwright/test') as typeof import('@playwright/test');
+  let phase = 'auth-reference', passed = false;
+  try {
+    const storageState = await authState(env);
+    phase = 'browser';
+    const browser = await chromium.launch({ headless: true, timeout });
+    const abort = () => { void browser.close().catch(() => {}); };
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      if (signal?.aborted) throw new Error('cancelled');
+      const context = await browser.newContext({ storageState });
+      const page = await context.newPage();
+      phase = 'site';
+      const response = await page.goto(env.base_url, { timeout: env.timeout_ms, waitUntil: 'domcontentloaded' });
+      if (!response?.ok() || new URL(page.url()).origin !== new URL(env.base_url).origin) throw new Error('unavailable');
+      phase = 'identity';
+      await expect(page.locator(env.identity.selector)).toHaveText(env.identity.text, { timeout: env.timeout_ms });
+      phase = 'initial-state';
+      await expect(page.locator(env.initial_state.selector)).toHaveText(env.initial_state.text, { timeout: env.timeout_ms });
+      passed = !signal?.aborted;
+    } finally { signal?.removeEventListener('abort', abort); await browser.close(); }
+  } catch { /* 仅登记阶段，底层认证错误不复制到普通业务资产。 */ }
+  return { status: passed ? 'completed' : 'blocked', check: phase, environment_id: env.environment_id,
+    deployment_version: env.deployment_version, role: env.role };
+}
 
 /** JSON reporter 提供原始步骤；启动失败和业务断言失败必须分开核对。 */
 export function checkDiagnosticReport(root: string, asset: Artifact<'asset'>, report: NativeReport, expected: string[] = []): string[] {
@@ -79,14 +107,16 @@ export function checkDiagnosticReport(root: string, asset: Artifact<'asset'>, re
 }
 
 /** 使用原版 Playwright CLI/config/reporter；诊断独立保存且永不计入正式 run。 */
-export async function runDesignDiagnostics(root: string, assetRef: FileRef, reviewRef: FileRef, specRef: FileRef, signal?: AbortSignal) {
+export async function runDesignDiagnostics(root: string, assetRef: FileRef, reviewRef: FileRef, specRef: FileRef, signal?: AbortSignal,
+  onStart?: (inputRef: FileRef) => Promise<void>) {
   root = await realpath(root);
   const store = new ArtifactStore(root), asset = await store.load(assetRef) as Artifact<'asset'>;
   await verifyReferences(root, specRef);
   const spec: DiagnosticSpec = JSON.parse(await readFile(await workspacePath(root, specRef.path), 'utf8'));
   if (!validate(spec)) throw new WorkflowError('invalid-input', '诊断计划不符合环境、错误结果和断言映射契约');
   if (asset.kind !== 'asset' || !asset.data.bindings?.length) throw new WorkflowError('invalid-input', '诊断输入不是可映射的候选');
-  const inputs = [specRef, spec.environment_ref, spec.config_ref, ...spec.probes.flatMap(p => [p.environment_ref, p.config_ref, ...p.mutation_refs])];
+  const inputs = [specRef, spec.environment_ref, spec.config_ref, ...(spec.control_environment_ref ? [spec.control_environment_ref] : []),
+    ...spec.probes.flatMap(p => [p.environment_ref, p.config_ref, ...p.mutation_refs])];
   if (inputs.some(r => !asset.data.files.some(f => same(f, r)))) throw new WorkflowError('precondition', '诊断配置、环境和错误副本来源必须纳入获批修订');
   await verifyReferences(root, inputs);
   const review = await store.load(reviewRef) as Artifact<'design-review'>;
@@ -98,12 +128,15 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
   if (tested.some(id => !assertions.includes(id)) || assertions.some(id => !tested.includes(id))) throw new WorkflowError('precondition', '断言自检计划缺失或引用未知断言');
   const environments = await Promise.all([spec.environment_ref, ...spec.probes.map(p => p.environment_ref)].map(async ref =>
     validateEnvironment(JSON.parse(await readFile(await workspacePath(root, ref.path), 'utf8')))));
+  const target = environments[0];
+  const control = spec.control_environment_ref ? validateEnvironment(JSON.parse(await readFile(await workspacePath(root, spec.control_environment_ref.path), 'utf8'))) : target;
   const scope = await store.load(asset.data.scope_ref) as Artifact<'scope'>;
   if (environments[0].environment_id !== scope.data.environment_id || environments.some(e => e.role !== scope.data.role) ||
       (scope.data.base_url && environments[0].base_url !== scope.data.base_url)) {
     throw new WorkflowError('precondition', '正对照环境与测试范围不符，或错误副本角色发生变化');
   }
-  if (environments.some(e => e.isolation !== 'context') || environments.slice(1).some(e => new URL(e.base_url).origin === new URL(environments[0].base_url).origin)) {
+  if (control.role !== scope.data.role || control.isolation !== 'context' || environments.some(e => e.isolation !== 'context') ||
+      environments.slice(1).some(e => [target, control].some(c => new URL(e.base_url).origin === new URL(c.base_url).origin))) {
     throw new WorkflowError('precondition', '诊断首期仅支持 context 隔离；错误应用副本必须与正对照使用不同 origin');
   }
   if (signal?.aborted) throw new WorkflowError('cancelled', '诊断已取消');
@@ -112,44 +145,31 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
   try {
     const metadataPath = require.resolve('playwright/package.json');
     const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
+    if (metadata.version !== '1.62.1') throw new WorkflowError('incompatible-version', '诊断仅验证过 Playwright 1.62.1');
     if (typeof metadata.bin?.playwright !== 'string') throw new Error('missing bin');
     cli = join(dirname(metadataPath), metadata.bin.playwright);
   }
-  catch { throw new WorkflowError('missing-capability', '被测项目没有可用的 Playwright CLI'); }
+  catch (error) { if (error instanceof WorkflowError) throw error; throw new WorkflowError('missing-capability', '被测项目没有可用的 Playwright CLI'); }
   const id = `diagnostic-${randomUUID()}`, base = `${posix.dirname(assetRef.path)}/diagnostics/${id}`;
   const inputRef = await store.putFile(`${base}/input.json`, json({ purpose: 'design-validation', formal_run: false,
-    asset_ref: assetRef, review_ref: reviewRef, spec_ref: specRef, environments }));
+    asset_ref: assetRef, review_ref: reviewRef, spec_ref: specRef, environments, control }));
+  await onStart?.(inputRef);
   const output: { id: string; report_ref?: FileRef; process_ref?: FileRef; evidence_refs: FileRef[]; problems: string[] }[] = [];
+  let targetPreflightRef: FileRef | undefined, targetPassed = true, unknownEffects = false;
+  if (spec.control_environment_ref) {
+    const result = await preflight(root, target, spec.timeout_ms, signal);
+    targetPreflightRef = await store.putFile(`${base}/target-preflight.json`, json(result));
+    targetPassed = result.status === 'completed';
+    if (!targetPassed) output.push({ id: 'target', evidence_refs: [targetPreflightRef], problems: [`目标环境前置检查失败：${result.check}`] });
+  }
   const rounds = [{ id: 'positive', config_ref: spec.config_ref, assertion_ids: [] as string[] }, ...spec.probes];
   for (const [index, round] of rounds.entries()) {
-    if (signal?.aborted) break;
-    const directory = `${base}/${round.id}`, env = environments[index];
-    const { chromium, expect } = require('playwright/test') as typeof import('@playwright/test');
-    let phase = 'auth-reference', preflightPassed = false;
-    try {
-      const storageState = await authState(env);
-      phase = 'browser';
-      const browser = await chromium.launch({ headless: true, timeout: spec.timeout_ms });
-      const abort = () => { void browser.close().catch(() => {}); };
-      signal?.addEventListener('abort', abort, { once: true });
-      try {
-        if (signal?.aborted) throw new Error('cancelled');
-        const context = await browser.newContext({ storageState });
-        const page = await context.newPage();
-        phase = 'site';
-        const response = await page.goto(env.base_url, { timeout: env.timeout_ms, waitUntil: 'domcontentloaded' });
-        if (!response?.ok() || new URL(page.url()).origin !== new URL(env.base_url).origin) throw new Error('unavailable');
-        phase = 'identity';
-        await expect(page.locator(env.identity.selector)).toHaveText(env.identity.text, { timeout: env.timeout_ms });
-        phase = 'initial-state';
-        await expect(page.locator(env.initial_state.selector)).toHaveText(env.initial_state.text, { timeout: env.timeout_ms });
-        preflightPassed = !signal?.aborted;
-      } finally { signal?.removeEventListener('abort', abort); await browser.close(); }
-    } catch { /* 仅登记阶段，不将可能含认证信息的底层错误复制到普通资产。 */ }
-    const preflightRef = await store.putFile(`${directory}/preflight.json`, json({ status: preflightPassed ? 'completed' : 'blocked',
-      check: phase, environment_id: env.environment_id, deployment_version: env.deployment_version, role: env.role }));
-    if (!preflightPassed) {
-      output.push({ id: round.id, evidence_refs: [preflightRef], problems: [`前置检查失败：${phase}，未运行候选脚本`] });
+    if (signal?.aborted || !targetPassed) break;
+    const directory = `${base}/${round.id}`, env = index === 0 ? control : environments[index];
+    const preflightResult = await preflight(root, env, spec.timeout_ms, signal);
+    const preflightRef = await store.putFile(`${directory}/preflight.json`, json(preflightResult));
+    if (preflightResult.status !== 'completed') {
+      output.push({ id: round.id, evidence_refs: [preflightRef], problems: [`前置检查失败：${preflightResult.check}，未运行候选脚本`] });
       break;
     }
     const reportPath = join(root, directory, 'native.json'), outputDir = join(root, directory, 'output');
@@ -158,23 +178,32 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
       `export default {...base,...${JSON.stringify({ testDir: root, testMatch: [...new Set(asset.data.bindings.map(b => join(root, b.script_ref.path)))],
         retries: 0, repeatEach: 1, workers: 1, fullyParallel: false, forbidOnly: true, globalTimeout: spec.timeout_ms,
         outputDir, reporter: [['json', { outputFile: reportPath }]],
+        ...(asset.data.compiler_config_ref ? { tsconfig: await workspacePath(root, asset.data.compiler_config_ref.path) } : {}),
         projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
       })},grep:undefined,grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(env.base_url)},` +
       `uiEnvironment:${JSON.stringify(env)},uiProjectRoot:${JSON.stringify(root)},uiOwner:${JSON.stringify({ task_id: id, kind: 'recording', id })},` +
       `storageState:${env.auth.kind === 'none' ? 'undefined' : `process.env[${JSON.stringify(env.auth.reference)}]`},headless:true,trace:'retain-on-failure'}};\n`);
     const args = [cli, 'test', '--config', join(root, configRef.path)];
+    const processToken = randomUUID();
+    const intentRef = await store.putFile(`${directory}/launch-intent.json`, json({ command: process.execPath, args,
+      config_ref: configRef, process_token: processToken, created_at: new Date().toISOString() }));
     // 超时/取消不重试业务动作；原生 fixture teardown 及其残留由后续诊断证据核对。
     const running = execute(process.execPath, args, { cwd: root, signal,
+      env: { ...process.env, PI_UI_DIAGNOSTIC_PROCESS_TOKEN: processToken },
       timeout: spec.timeout_ms + 5000, maxBuffer: 4 * 1024 * 1024, killSignal: 'SIGINT' });
+    // 先挂接拒绝处理，再等待存盘；取消不能产生未处理的 Promise 拒绝。
     const kill = setTimeout(() => running.child.kill('SIGKILL'), spec.timeout_ms + 10000);
-    const processResult = await running
+    const completion = running
       .then(r => ({ code: 0 as number | string | null, signal: null as string | null, stdout: r.stdout, stderr: r.stderr }),
         (error: { code?: number | string; signal?: string; stdout?: string; stderr?: string }) => ({ code: error.code ?? null,
           signal: error.signal ?? null, stdout: error.stdout ?? '', stderr: error.stderr ?? '' }))
       .finally(() => clearTimeout(kill));
+    const startedRef = await store.putFile(`${directory}/process-started.json`, json({ intent_ref: intentRef,
+      process_token: processToken, pid: running.child.pid ?? null, observed_at: new Date().toISOString() }));
+    const processResult = await completion;
     const processRef = await store.putFile(`${directory}/process.json`, json({ command: process.execPath, args,
-      config_ref: configRef, ...processResult }));
-    const evidence: FileRef[] = [preflightRef, configRef], problems: string[] = [];
+      config_ref: configRef, intent_ref: intentRef, started_ref: startedRef, process_token: processToken, ...processResult }));
+    const evidence: FileRef[] = [preflightRef, configRef, intentRef, startedRef], problems: string[] = [];
     let reportRef: FileRef | undefined;
     try {
       const bytes = await readFile(reportPath), report: NativeReport = JSON.parse(bytes.toString());
@@ -190,6 +219,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
       }
     } catch (error) { problems.push(error instanceof Error ? error.message : '原生报告或附件无法读取'); }
     const expectedCode = index === 0 ? 0 : 1;
+    if (processResult.signal || typeof processResult.code !== 'number') unknownEffects = true;
     if (processResult.code !== expectedCode || processResult.signal || signal?.aborted) problems.push('进程未按预期完成，不认定断言自检有效');
     output.push({ id: round.id, ...(reportRef ? { report_ref: reportRef } : {}), process_ref: processRef, evidence_refs: evidence, problems });
     if (problems.length) break;
@@ -200,6 +230,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
   const complete = !integrity.length && output.length === rounds.length && output.every(r => !r.problems.length) && !signal?.aborted;
   const summary = { schema_version: '1.0', purpose: 'design-validation', formal_run: false, asset_ref: assetRef,
     review_ref: reviewRef, spec_ref: specRef, environment_ref: spec.environment_ref, input_ref: inputRef,
+    ...(targetPreflightRef ? { target_preflight_ref: targetPreflightRef } : {}), unknown_effects: unknownEffects,
     status: complete ? 'validated' : signal?.aborted ? 'cancelled' : 'blocked', integrity_problems: integrity, rounds: output };
   const summaryRef = await store.putFile(`${base}/summary.json`, json(summary));
   return { summary_ref: summaryRef, ...summary };

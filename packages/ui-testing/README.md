@@ -1,8 +1,8 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.0，已实现 UI-02 的产物契约、UI-03 的本地持久化、UI-04 的环境/数据 fixture 及 UI-05 的发现与自动录制交接。录制/执行兼容性已由 UI-01 验证，完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；本包还不能授权正式执行测试。
+当前版本 0.1.0，已实现 UI-02 的产物契约、UI-03 的本地持久化、UI-04 的环境/数据 fixture 及 UI-05 的发现与自动录制交接。录制/执行兼容性已由 UI-01 验证，完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；本包尚未提供正式执行入口。
 
-UI-06 正在实现：现已支持候选静态检查与独立设计评估登记，尚不能授予正式执行权限；真实定位诊断与断言检错验证仍待完成。
+UI-06 已接入候选静态检查、独立设计评估与受控诊断登记，具体验收状态以实施计划为准。运行就绪不等于产品通过，也不替代后续正式执行的当前环境预检。
 
 ## 使用
 
@@ -118,7 +118,7 @@ browser_type 只接受预先声明的公开合成 test_data，或当前 recordin
 
 `tests/ui-testing/recording.test.mjs` 覆盖预算、重复操作/中断、固定输入及临时路径检查，并以受控协议模型驱动真实 Pi、原生 MCP 和 Chromium，验证自动交互、真实来源、seed teardown、重读持久化和参数化草稿回放；另验证源码读取/草稿保存全程无浏览器动作。模型在任意真实项目中的规划质量仍待 UI-10 验收。
 
-## 候选与独立设计评估（UI-06，进行中）
+## 候选、独立设计评估与诊断（UI-06）
 
 按需加载 `ui-case-design` 和 `ui-design-review` Skills。`ui_case_design` 的参数为 `{request: {operation, ...}}`，支持 save-cases、save-file、candidate、check；candidate 会重新计算资产摘要并检查真实依赖。每个 case 绑定静态测试标题，每条 assertion_id 绑定唯一 `test.step`。脚本、共享 helper/fixture、配置和来源必须纳入不可变修订；复用 TypeScript 5.9.3 compiler API 检查语法、类型和本地模块依赖，不另造解析器。
 
@@ -126,10 +126,16 @@ browser_type 只接受预先声明的公开合成 test_data，或当前 recordin
 
 评估最多三次，异常也消耗调用预算；相同请求去重，未知调用结果不自动重试。退回后保存新修订再评估，无改善或缺事实时保持未批准。批准登记和预算位于 Pi 会话目录下私有 `ui-review-authority/`；业务评估仍保存在被测项目 `qa/ui/`。换工作区或迁移时，仅复制项目里的 approved JSON 不能取得执行授权；私有登记丢失时需要重新评估。
 
-库入口 `DesignReviewService.gate(assetRef, reviewRef, false)` 验证设计批准、规则版本、真实文件与依赖。默认 gate 要求运行就绪，目前明确拒绝：设计批准不能代替真实定位诊断和隔离错误结果下的断言自检。上述诊断及其可信登记完成前，UI-06 不算完成。当前受控协议模型验证接线与门禁，不能证明真实模型的语义评估质量。
+库入口 `DesignReviewService.gate(assetRef, reviewRef, false)` 验证设计批准、规则版本、真实文件与依赖。默认 gate 还要求可信运行证明：设计批准和自填 readiness 字段均不能代替诊断登记。编译配置及本地 extends 纳入 files；可用 compiler_config_ref 指定独立测试编译配置，runner 同步使用。继承包配置须锁定包版本。
 
-诊断内部库入口 `runDesignDiagnostics(root, assetRef, reviewRef, specRef, signal?)` 复用被测项目安装的 Playwright CLI、config、JSON reporter 和 trace。`diagnosticSpecSchema` 声明正对照环境/config 及错误应用副本的环境/config、变异来源、目标 assertion_ids；这些文件都须进入获批候选的 files，错误副本使用不同 origin，角色保持一致。正对照必须匹配 scope；每个环境先核验站点、身份和初态，再启动全新 runner context。认证继续使用私有环境变量引用，不把 storageState 路径写入生成配置。
+诊断内部库入口 `runDesignDiagnostics(root, assetRef, reviewRef, specRef, signal?)` 复用被测项目安装的 Playwright CLI、config、JSON reporter 和 trace。`diagnosticSpecSchema` 声明正对照环境/config 及错误应用副本的环境/config、变异来源、目标 assertion_ids；这些文件都须进入获批候选的 files，错误副本使用不同 origin，角色保持一致。environment_ref 必须匹配 scope；未指定 control_environment_ref 时也作为默认正对照，需要正常副本时可用该可选字段覆盖。当前目标仍单独预检，不能要求有缺陷的产品先通过测试。每个环境先核验站点、身份和初态，再启动全新 runner context。认证继续使用私有环境变量引用，不把 storageState 路径写入生成配置。
 
 诊断不改候选脚本和预期值，不重试业务操作。它逐 case 对账原生报告：正对照的映射断言步骤全部通过；错误副本的指定 expect 步骤实际失败；启动/导航失败、超时、预期失败、重试、非目标失败和未确认清理的残留均不能冒充检错证明；明确约定保留的数据仍如实留证。配置、输入、报告、退出码和附件摘要位于修订下 `diagnostics/<id>/`，显式标记 `formal_run:false`；脚本/输入中途变化会保留证据并阻断。
 
-该库目前仅用于受控验证，尚未注册 Agent 工具，也未登记可信运行授权；`validated` 表示诊断证据核对通过，默认执行门禁仍然拒绝。错误副本来源与部署版本由项目提供并接受独立设计审查，当前实现不能自动证明任意远端部署与源码一致。后续仍须完成工具入口、请求去重/未知执行核对、可信运行登记与失效检查，才可交接 UI-07。
+`ui_design_diagnose` 通过 `{request:{operation:"diagnose",asset_ref,review_ref,spec_ref,request_id}}` 调用 `RuntimeAdmissionService.diagnose`；先验证可信设计批准，再保存请求状态、运行原生诊断并登记私有运行证明。相同请求返回原结果；输入变化、并发调用和未知执行阻断。`operation:"status"` 只读旧请求，重启后不重放浏览器。直接调用底层库得到 `validated` 或自行写项目 JSON 都不能取得可信登记。
+
+未知诊断仅阻断模块集合有交集的资产，原范围及记录保留；旧请求没有模块信息时保守阻断。首期浏览器诊断仍串行，不表示已实现并发调度。独立 reviewer 默认关闭思考，单次调用限时 120 秒；取消、超时和无效响应不授予批准，并保留输入/响应引用。
+
+运行登记与请求状态保存在 `ui-review-authority/runtime/`，绑定候选、设计评估、诊断摘要、所有证据和实际诊断实现摘要。重新诊断先使旧证明失效，取消或结果不明时保留 unknown，禁止换 ID 重放；后续中断核对由 UI-11 实现。依赖、规则或证据变化会使 gate 拒绝旧证明；私有登记丢失时需重新评估/诊断。错误副本来源与部署版本由项目提供并接受独立设计审查，当前实现不能自动证明任意远端部署与源码一致。运行登记只证明受控脚本设计验证，正式执行仍须新预检、新数据、新 context 和新批次。
+
+`npm test` 验证确定性边界、真实 Pi 工具和原生浏览器；受控模型验证接线，不替代语义质量。可单独运行 `PI_UI_DESIGN_LIVE=1 node --test --test-name-pattern="UI-06 live" tests/ui-testing/design.test.mjs` 验证配置中的真实模型；原始意见与来源保存在 `evidence/ui-testing/ui-06/`。UI-10 仍须完成重复样本校准，单次冒烟不代表零幻觉。

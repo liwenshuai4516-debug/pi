@@ -56,14 +56,23 @@ export async function checkDesign(root: string, ref: FileRef): Promise<DesignChe
   }
   if (asset.data.bindings.some(b => !cases.data.cases.some(c => c.case_id === b.case_id))) issue('D6', '存在未登记 case 的脚本映射', ref);
 
-  const optionsFile = ts.findConfigFile(root, ts.sys.fileExists);
+  const optionsFile = asset.data.compiler_config_ref ? await workspacePath(root, asset.data.compiler_config_ref.path) : ts.findConfigFile(root, ts.sys.fileExists);
+  const configs = new Set<string>();
+  const readConfig = (path: string) => { const value = ts.sys.readFile(path); if (value !== undefined) configs.add(path); return value; };
   let options: ts.CompilerOptions = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext };
   if (optionsFile) {
-    const config = ts.readConfigFile(optionsFile, ts.sys.readFile);
+    const config = ts.readConfigFile(optionsFile, readConfig);
     if (config.error) throw new WorkflowError('invalid-input', '项目 TypeScript 配置不可读取');
-    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, dirname(optionsFile));
+    const parsed = ts.parseJsonConfigFileContent(config.config, { ...ts.sys, readFile: readConfig }, dirname(optionsFile));
     if (parsed.errors.length) throw new WorkflowError('invalid-input', '项目 TypeScript 配置无效');
     options = { ...options, ...parsed.options };
+  }
+  for (const file of configs) {
+    const path = relative(root, file).replaceAll('\\', '/');
+    if (path.includes('node_modules/')) {
+      const parts = path.split('node_modules/').at(-1)!.split('/'), name = parts[0].startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+      if (!asset.data.dependencies.some(d => d.name === name)) issue('D10', `编译配置的包依赖未锁定：${name}`, ref);
+    } else if (!asset.data.files.some(f => f.path === path)) issue('D10', `编译配置未纳入修订摘要：${path}`, ref);
   }
   options = { ...options, rootDir: root, noEmit: true, incremental: false, composite: false, skipLibCheck: true,
     allowJs: true, checkJs: true, allowImportingTsExtensions: true, resolveJsonModule: true };

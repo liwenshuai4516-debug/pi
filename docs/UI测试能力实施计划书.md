@@ -1,6 +1,6 @@
 # UI 测试能力实施计划书
 
-更新：2026-10-21。状态：**正在按任务依赖实施**。UI-01 至 UI-05 已完成；各任务状态和证据以本文登记为准。本文统一维护实现顺序和进度；能力规则见 [UI 详细设计](./UI测试业务流程详细设计.md) 与 [录制及资产复用设计](./UI自动录制与资产复用设计.md)。
+更新：2026-10-21。状态：**正在按任务依赖实施**。UI-01 至 UI-06 已完成；各任务状态和证据以本文登记为准。本文统一维护实现顺序和进度；能力规则见 [UI 详细设计](./UI测试业务流程详细设计.md) 与 [录制及资产复用设计](./UI自动录制与资产复用设计.md)。
 
 ## 1. 实现目标与边界
 
@@ -92,7 +92,7 @@ P0 是首个可用版本的必需项；P1 在 P0 闭环可重复运行后增强�
 | UI-03 | P0 | 资产、任务和批次持久化 | UI-02 | 已完成 |
 | UI-04 | P0 | 环境、认证引用及测试数据生命周期 | UI-02 | 已完成 |
 | UI-05 | P0 | 发现模块并自动录制 | UI-03、UI-04 | 已完成 |
-| UI-06 | P0 | 用例、断言生成及设计评估门禁 | UI-05 | 进行中 |
+| UI-06 | P0 | 用例、断言生成及设计评估门禁 | UI-05 | 已完成 |
 | UI-07 | P0 | 正式执行与原始证据采集 | UI-06 | 未开始 |
 | UI-08 | P0 | 确定性统计、归因和结果评估 | UI-07 | 未开始 |
 | UI-09 | P0 | 按需 Skill 组合与重启复用 | UI-08 | 未开始 |
@@ -267,7 +267,7 @@ P0 是首个可用版本的必需项；P1 在 P0 闭环可重复运行后增强�
 | UI-03 | 已完成 / 2026-10-21 | `ArtifactStore`、不可变附件/修订、任务与批次登记、CLI 存取/索引入口、包说明的持久化样例 | `tests/ui-testing/store.test.mjs`：独立进程读取资产/评估、半成品不可加载、索引损坏重建、脚本/fixture 摘要变化、并发重复请求及输入冲突、终态及中断阻断 | 复用 proper-lockfile 4.1.2 和 Node 文件 API，仅新增业务身份/摘要/阶段关联；正式审批/执行留待 UI-06/UI-07，自动恢复留待 UI-11 |
 | UI-04 | 已完成 / 2026-10-21 | 环境模板、私有 storageState 引用、Playwright 原生 fixture、前置检查附件、数据归属/准备/清理事件及残留 | `tests/ui-testing/environment.test.mjs`：真实 Chromium/runner 验证独立数据、断言失败清理、清理残留、SIGINT 取消、有效/失效认证；确定性检查归属与共享资源锁 | 复用 Playwright Test 1.62.1 的 context/fixture/expect/附件/teardown，proper-lockfile 提供项目内资源锁；不自建登录器；跨项目共享调度、强杀进程恢复及正式业务结果统计未在此阶段实现 |
 | UI-05 | 已完成 / 2026-10-21 | `ui-discover-record` Skill、`ui_discover_record` 工具、RecordingService、带来源 inventory/source-only 草稿、原始请求/观察/日志、完整或 partial recording | `tests/ui-testing/recording.test.mjs`：真实 Pi/原生 MCP/Chromium 交互、UI-04 seed 清理、持久化重读与参数化草稿回放；实际源码读取和草稿保存无浏览器动作；预算/无进展/重复请求/未知副作用/临时定位与固定数据负例 | 复用 Pi executeTool、原生工具/资源及 Playwright 1.62.1 测试 MCP，仅增业务记录和限额；受控协议模型不替代 UI-10 的模型质量验收；修正 proper-lockfile 资源目标与元数据写锁重叠并补回归 |
-| UI-06 | 进行中 / 2026-10-21 | `ui-case-design`、`ui-design-review` Skills 与工具，TypeScript 编译/依赖及 case/assertion 映射检查，独立 Agent 评估、原始输入/响应、私有批准登记与预算；诊断内部库 `runDesignDiagnostics` | `tests/ui-testing/design.test.mjs` 覆盖静态负例、独立 Agent 无生成者历史/工具、引用真实性、伪造批准拒绝、修订重评、预算与摘要失效；真实 Chromium 验证同脚本在正常页面通过、隔离未持久化副本的 A1 expect 失败且 trace 可读，环境失败不充当检错证明。完整回归 69 项通过、1 项外部模型测试未启用；清理状态核对调整另做针对验证 | 复用 TypeScript 5.9.3 compiler API、Pi Agent/模型注册表、Ajv、proper-lockfile 及原生 Playwright CLI/config/reporter/trace；仅补业务关联与证据核对。诊断显式非正式 run，默认运行门禁仍拒绝；待完成 Agent 诊断工具、请求去重/未知执行核对、可信运行登记与失效验证，不作为 UI-07 正式执行授权 |
+| UI-06 | 已完成 / 2026-10-21 | `ui-case-design`、`ui-design-review`、`ui_design_diagnose`，编译/依赖与映射检查、独立 Agent 评估、私有设计批准与可信运行登记；诊断请求去重、重启查询、未知执行阻断 | [设计评估验证记录](./UI测试设计评估验证.md)；类型检查与构建通过，完整受控回归 76 项通过、2 项外部模型测试未启用；真实 Chromium 正反对照、产品有缺陷时独立正常副本、取消/进程证据、篡改失效、模块范围阻断及原文片段引用均已验证 | 复用 TypeScript 5.9.3、Pi Agent/模型注册表、Ajv、proper-lockfile 与 Playwright 1.62.1 CLI/config/reporter/trace；仅补业务关联、门禁和证据核对。真实模型冒烟在证据目录 `1792557447759` 通过：合理设计获批，错误预期被 D2、D9 拒绝；此前误拒及超时均保留，不宣称稳定性或零幻觉。正式执行仍待 UI-07，重复校准待 UI-10 |
 
 可直接复制的后续任务指令：
 
@@ -282,4 +282,4 @@ P0 是首个可用版本的必需项；P1 在 P0 闭环可重复运行后增强�
 若有阻塞，列出缺口及影响，继续不依赖该缺口的工作，不伪造完成。
 ```
 
-下一步为 **UI-06**；在 M3 完成前，不提前以多 Agent 并行、数据库或独立管理界面作为落地前提。
+下一步为 **UI-07**；在 M3 完成前，不提前以多 Agent 并行、数据库或独立管理界面作为落地前提。

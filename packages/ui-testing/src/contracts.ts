@@ -60,6 +60,7 @@ const bodies = {
   asset: object({ revision: id, module_ids: Type.Array(id, { minItems: 1 }), scope_ref: fileRefSchema,
     cases_ref: fileRefSchema, recording_refs: refs, files: Type.Array(fileRefSchema, { minItems: 1 }),
     inventory_ref: Type.Optional(fileRefSchema),
+    compiler_config_ref: Type.Optional(fileRefSchema),
     bindings: Type.Optional(Type.Array(object({ case_id: id, script_ref: fileRefSchema,
       test_title: Type.String({ minLength: 1 }), assertion_ids: Type.Array(id, { minItems: 1 }) }))),
     dependencies: Type.Array(object({ name: Type.String({ minLength: 1 }), version: Type.String({ minLength: 1 }) })),
@@ -126,4 +127,9 @@ export const capabilities = [{ capability_id: 'ui-validate-artifact', capability
   input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_design_review',
   side_effects: 'model-call-and-review-records', safe_to_repeat: false, requires: { pi: '1.2.0', schema: '1.0' },
   errors: ['invalid-input', 'precondition', 'review-rejected', 'cancelled'],
+}, { capability_id: 'ui-design-diagnose', capability_version: '0.1.0',
+  input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_design_diagnose',
+  side_effects: 'browser-actions-and-native-runner', safe_to_repeat: false,
+  requires: { pi: '1.2.0', schema: '1.0', playwright: '1.62.1' },
+  errors: ['invalid-input', 'precondition', 'review-rejected', 'missing-capability', 'cancelled'],
 }];

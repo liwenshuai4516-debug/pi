@@ -11,4 +11,6 @@ description: 从已登记的 UI 功能清单、需求/声明/基线及录制证�
 
 把 inventory_ref、cases_ref、录制引用、脚本、本地 helper/fixture、配置和数据规则纳入资产依赖；依赖包锁定实际版本。保留选定主链及未探索范围，不能靠删 case 或断言通过检查。源码-only 使用 readiness=design-only，未核验定位器保留缺口。runtime-verified 不能自填为执行授权，仍需要受控运行证据。
 
+项目有 TypeScript 配置时，将实际使用的配置及本地 extends 一并纳入 files；可用 compiler_config_ref 指定独立的测试编译配置，诊断 runner 同步使用它。继承包配置时锁定对应包版本。需要运行验证时，在设计评估前保存符合 `schema diagnostic-spec` 的正反对照计划、环境/config 与变异来源；复用已有受控响应或测试副本，不改业务服务或断言预期来制造“检错成功”。
+
 收到静态阻断先修订，使用新 case ID 或资产 revision，不覆盖旧文件。结构/编译通过后交给 `/skill:ui-design-review`；独立评估退回后依据明确问题修订并重评。最多三轮、无改善或缺事实时停止，不能更换任务 ID 来规避同一次工作流预算。未批准候选不得作为正式执行输入。

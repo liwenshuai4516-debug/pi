@@ -10,6 +10,7 @@ export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 export async function setupUiFixture({ discardPersistence = false } = {}) {
   const fixture = await setupFixture();
   const server = createServer((_req, res) => {
+    fixture.state.browserRequests = (fixture.state.browserRequests ?? 0) + 1;
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(`<!doctype html><html lang="en"><title>UI capability fixture</title>
       <h1>Names</h1><form><label>Name <input required name="name"></label><button>Save</button></form>
@@ -21,7 +22,7 @@ export async function setupUiFixture({ discardPersistence = false } = {}) {
       })); }
       document.querySelector('form').onsubmit = event => {
         event.preventDefault(); names.push(new FormData(event.target).get('name'));
-        ${discardPersistence ? '' : "localStorage.setItem('names', JSON.stringify(names));"} render(); event.target.reset();
+        ${discardPersistence ? "localStorage.removeItem('names');" : "localStorage.setItem('names', JSON.stringify(names));"} render(); event.target.reset();
       }; render();</script></html>`);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

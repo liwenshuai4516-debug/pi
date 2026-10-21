@@ -1,34 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, readdir, mkdir, cp } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ArtifactStore, assetDigest, checkDesign, designEvidence, DesignReviewService, runDesignDiagnostics, checkDiagnosticReport, sha256 } from '../../packages/ui-testing/dist/index.js';
+import { homedir } from 'node:os';
+import { Agent } from '@earendil-works/pi-agent-core';
+import { ModelRuntime, convertToLlm } from '@earendil-works/pi-coding-agent';
+import { ArtifactStore, assetDigest, checkDesign, designEvidence, DesignReviewService, RuntimeAdmissionService, runDesignDiagnostics, checkDiagnosticReport, sha256 } from '../../packages/ui-testing/dist/index.js';
 import { artifact, scope, cases, designReview } from '../support/ui-artifacts.mjs';
-import { setupUiFixture, textContent, repoRoot } from '../support/ui-fixture.mjs';
+import { setupUiFixture, copyLiveModel, textContent, repoRoot } from '../support/ui-fixture.mjs';
+import { until } from '../support/fixture.mjs';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
 import { AgentHost } from '../../dist/main/agent/agent-host.js';
 
 const validCode=`import {test,expect} from 'playwright/test';
+test.use({storageState:{cookies:[],origins:[]}});
 test('C1 Name persists',async({page})=>{
  const key='qa-'+crypto.randomUUID();await page.goto('/');
  await page.getByRole('textbox',{name:'Name'}).fill(key);
  await page.getByRole('button',{name:'Save'}).click();await page.reload();
  await test.step('A1 Name persists after reload',async()=>{await expect(page.getByRole('listitem')).toHaveText([key]);});
 });`;
-async function setup(t) {
-  const fixture=await setupUiFixture();t.after(()=>fixture.close());
+async function setup(t,options) {
+  const fixture=await setupUiFixture(options);t.after(()=>fixture.close());
   const root=fixture.project,store=new ArtifactStore(root),authority=join(fixture.agentDir,'private-reviews');
-  const ref={path:'requirements.md',sha256:sha256('R1: Saved Name persists after reload.')};
-  await writeFile(join(root,ref.path),'R1: Saved Name persists after reload.');
+  const requirement='R1: Saved Name persists after reload.\nAcceptance for this controlled fixture: start each case in a fresh non-persistent Playwright browser context with empty localStorage and no imported storageState. Enter the generated Name, click Save, then reload. The Saved names list must contain exactly one list item whose text is the original submitted Name, without normalization. Closing that owned context removes its localStorage; no external data is shared.';
+  const ref={path:'requirements.md',sha256:sha256(requirement)};
+  await writeFile(join(root,ref.path),requirement);
   const s=scope();s.data.sources[0].ref=ref;s.data.base_url=fixture.url;
+  s.data.goal='Only valid generated Name inputs: Save then reload and verify persistence. Validation boundaries and other functions are outside this task.';
   const scopeRef=await store.put(s);
   const inventory=artifact('inventory',{scope_ref:scopeRef,features:[{module_id:'names',feature_id:'save',name:'Names',
     entry:'/',role:'tester',actions:['Save Name','Reload'],scenarios:[{scenario_id:'valid-name',title:'Persistence'}],coverage:'discovered',
-    source_refs:[ref],source_locations:[{ref,symbol:'R1',line:1}],discovery:'source',priority:'P0',states:['initial','saved','reloaded'],gaps:[]}],unexplored:[]});
+    source_refs:[ref],source_locations:[{ref,symbol:'R1',line:1}],discovery:'source',priority:'P0',states:['initial','saved','reloaded'],gaps:[]}],
+    unexplored:['Input validation and other unselected functions were not explored; this task covers valid-name persistence only.']});
   const inventoryRef=await store.put(inventory);
   const dataRules=await store.putFile('qa/ui/cases/cases-1/data-rules.json',JSON.stringify({name:'qa-${uuid}',isolation:'browser context',cleanup:'close owned context'}));
   const make=async(revision='v1',code=validCode,change=()=>{})=>{
     const c=cases();c.id=`cases-${revision}`;c.data.scope_ref=scopeRef;c.data.sources=s.data.sources;c.data.data_rules_ref=dataRules;
+    c.data.gaps=['Boundary/invalid-input scenarios are outside the selected persistence scope and remain untested.'];
+    c.data.cases[0].preconditions=['Fresh non-persistent context, empty localStorage, no imported storageState; only the owned generated Name is saved.'];
     c.data.cases[0].assertions[0].expected={from:'generated input key'};change(c);
     const casesRef=await store.put(c);
     const scriptRef=await store.putFile(`qa/ui/assets/names/revisions/${revision}/name.spec.ts`,code);
@@ -62,22 +72,51 @@ function decision(input,kind='approved',improvement=input.previous?'improved':'f
 }
 const response = input => ({raw:JSON.stringify(decision(input)),provider:'fixture',model:'protocol'});
 
-test('UI-06: native diagnostic service preserves positive and negative reports without granting execution readiness', {timeout:60000},async t=>{
-  const f=await setup(t),broken=await setupUiFixture({discardPersistence:true});t.after(()=>broken.close());
-  const scriptBefore=await readFile(join(f.root,f.scriptRef.path));
+async function prepareDiagnostic(t,{targetFault=false}={}) {
+  const f=await setup(t,{discardPersistence:targetFault}),broken=await setupUiFixture({discardPersistence:true});t.after(()=>broken.close());
   const base='qa/ui/assets/names/revisions/v1/probes';
-  const config=await f.store.putFile(`${base}/base.config.mjs`,'export default {timeout:10000,expect:{timeout:400}};');
+  const config=await f.store.putFile(`${base}/base.config.mjs`,
+    "import {readFileSync} from 'node:fs';const environment=JSON.parse(readFileSync(new URL('./positive.json',import.meta.url),'utf8'));"+
+    'export default {timeout:10000,expect:{timeout:400},use:{baseURL:environment.base_url}};');
+  const negativeConfig=await f.store.putFile(`${base}/negative.config.mjs`,
+    "import {readFileSync} from 'node:fs';const environment=JSON.parse(readFileSync(new URL('./negative.json',import.meta.url),'utf8'));"+
+    'export default {timeout:10000,expect:{timeout:400},use:{baseURL:environment.base_url}};');
   const environment=url=>({schema_version:'1.0',environment_id:'test',deployment_version:'fixture-v1',base_url:url,
     role:'tester',identity:{selector:'h1',text:'Names'},initial_state:{selector:'button',text:'Save'},auth:{kind:'none'},isolation:'context',timeout_ms:500});
   const goodEnv=await f.store.putFile(`${base}/positive.json`,JSON.stringify(environment(f.fixture.url)));
   const badEnv=await f.store.putFile(`${base}/negative.json`,JSON.stringify(environment(broken.url)));
-  const badSource=await f.store.putFile(`${base}/discard-persistence.html`,await (await fetch(broken.url)).text());
+  const positiveResponse=await fetch(f.fixture.url),positiveBody=await positiveResponse.text();
+  const positiveSource=await f.store.putFile(`${base}/positive-source.html`,positiveBody);
+  const positiveProvenance=await f.store.putFile(`${base}/positive-http-source.json`,JSON.stringify({
+    environment_ref:goodEnv,source_ref:positiveSource,request:{method:'GET',url:f.fixture.url},
+    response:{status:positiveResponse.status,content_type:positiveResponse.headers.get('content-type'),body_sha256:sha256(positiveBody)},
+    acquired_at:new Date().toISOString(),isolation:'independent local controlled application and browser context',
+  }));
+  const httpResponse=await fetch(broken.url),body=await httpResponse.text();
+  const badSource=await f.store.putFile(`${base}/discard-persistence.html`,body);
+  const provenance=await f.store.putFile(`${base}/negative-http-source.json`,JSON.stringify({
+    environment_ref:badEnv,mutation_ref:badSource,request:{method:'GET',url:broken.url},
+    response:{status:httpResponse.status,content_type:httpResponse.headers.get('content-type'),body_sha256:sha256(body)},
+    acquired_at:new Date().toISOString(),isolation:'local controlled application copy; browser context data only',
+  }));
   const spec={environment_ref:goodEnv,config_ref:config,timeout_ms:15000,probes:[{id:'discard-persistence',environment_ref:badEnv,
-    config_ref:config,mutation_refs:[badSource],description:'Save updates the visible list but fails to persist after reload.',assertion_ids:['A1']}]};
+    config_ref:negativeConfig,mutation_refs:[badSource,provenance],description:'Save updates the visible list but erases persisted names, so reload loses the submitted Name.',assertion_ids:['A1']}]};
+  let controlRef;
+  if(targetFault){
+    const healthy=await setupUiFixture();t.after(()=>healthy.close());
+    controlRef=await f.store.putFile(`${base}/control.json`,JSON.stringify(environment(healthy.url)));
+    spec.control_environment_ref=controlRef;
+  }
   const specRef=await f.store.putFile(`${base}/plan.json`,JSON.stringify(spec));
-  const asset=structuredClone(f.asset);asset.id='names-diagnostic';asset.data.files.push(config,goodEnv,badEnv,badSource,specRef);
+  const asset=structuredClone(f.asset);asset.id='names-diagnostic';asset.data.files.push(config,negativeConfig,goodEnv,badEnv,positiveSource,positiveProvenance,badSource,provenance,specRef,...(controlRef?[controlRef]:[]));
   asset.data.content_sha256=assetDigest(asset);const assetRef=await f.store.put(asset);
   const reviewed=await f.service.assess(f.taskRef,assetRef,'diagnostic-review',response);
+  return {f,base,config,environment,spec,specRef,asset,assetRef,reviewed};
+}
+
+test('UI-06: native diagnostic service preserves positive and negative reports without granting execution readiness', {timeout:60000},async t=>{
+  const {f,base,config,environment,spec,specRef,asset,assetRef,reviewed}=await prepareDiagnostic(t);
+  const scriptBefore=await readFile(join(f.root,f.scriptRef.path));
   const validation=await runDesignDiagnostics(f.root,assetRef,reviewed.review_ref,specRef);
   assert.equal(validation.status,'validated');assert.equal(validation.formal_run,false);assert.equal(validation.rounds.length,2);
   assert.deepEqual(validation.rounds.flatMap(r=>r.problems),[]);
@@ -131,6 +170,70 @@ test('UI-06: TypeScript and binding checks accept a complete source-grounded can
   await assert.rejects(designEvidence(f.root,f.assetRef,1),/超过预算/);
 });
 
+test('UI-06: trusted runtime admission deduplicates actions, survives restart and rejects altered evidence or rules', {timeout:60000},async t=>{
+  const {f,assetRef,reviewed,specRef}=await prepareDiagnostic(t),runtime=new RuntimeAdmissionService(f.root,f.authority);
+  const running=runtime.diagnose(assetRef,reviewed.review_ref,specRef,'trusted-diagnostic');
+  await until(async()=>{try{return (await runtime.status('trusted-diagnostic')).started;}catch{return false;}});
+  await assert.rejects(new RuntimeAdmissionService(f.root,f.authority).diagnose(assetRef,reviewed.review_ref,specRef,'concurrent'),/已有诊断/);
+  const result=await running;assert.equal(result.runtime_ready,true);
+  await new DesignReviewService(f.root,f.authority).gate(assetRef,reviewed.review_ref);
+  const requests=f.fixture.state.browserRequests;
+  const duplicate=await new RuntimeAdmissionService(f.root,f.authority).diagnose(assetRef,reviewed.review_ref,specRef,'trusted-diagnostic');
+  assert.deepEqual(duplicate.summary_ref,result.summary_ref);assert.equal(duplicate.runtime_ready,true);
+  assert.equal(f.fixture.state.browserRequests,requests,'request replay must not start browser actions');
+  const interrupted=join(f.authority,'runtime/requests/interrupted-other-module.json');
+  const oldRequest={request_id:'interrupted-other',asset_ref:assetRef,review_ref:reviewed.review_ref,spec_ref:specRef,
+    module_ids:['unrelated-module'],state:'unknown',started:true};
+  await writeFile(interrupted,JSON.stringify(oldRequest));
+  await f.service.gate(assetRef,reviewed.review_ref);
+  assert.equal((await runtime.status('trusted-diagnostic')).runtime_ready,true,'unrelated module must not invalidate this receipt');
+  await writeFile(interrupted,JSON.stringify({...oldRequest,module_ids:['names']}));
+  await assert.rejects(f.service.gate(assetRef,reviewed.review_ref),/未核对诊断/);
+  await writeFile(interrupted,JSON.stringify({...oldRequest,module_ids:undefined}));
+  await assert.rejects(f.service.gate(assetRef,reviewed.review_ref),/未核对诊断/,'legacy unknown scope must remain blocked');
+  await writeFile(interrupted,JSON.stringify({...oldRequest,state:'completed'}));
+  await assert.rejects(runtime.diagnose(assetRef,reviewed.review_ref,{...specRef,sha256:'a'.repeat(64)},'trusted-diagnostic'),/不能改变输入/);
+  const trace=result.rounds[1].evidence_refs.find(r=>r.path.endsWith('trace.zip'));
+  const traceBytes=await readFile(join(f.root,trace.path));await writeFile(join(f.root,trace.path),'changed evidence');
+  await assert.rejects(f.service.gate(assetRef,reviewed.review_ref),/摘要不匹配/);
+  assert.equal((await runtime.status('trusted-diagnostic')).runtime_ready,false);
+  await writeFile(join(f.root,trace.path),traceBytes);
+  const accepted=join(f.authority,'runtime','accepted'),[filename]=await readdir(accepted),receiptPath=join(accepted,filename);
+  const receipt=await readFile(receiptPath,'utf8');
+  await writeFile(receiptPath,JSON.stringify({...JSON.parse(receipt),rules_version:'old-rules'}));
+  await assert.rejects(f.service.gate(assetRef,reviewed.review_ref),/规则已变化/);
+  await writeFile(receiptPath,receipt);
+  await f.service.gate(assetRef,reviewed.review_ref);
+});
+
+test('UI-06: diagnostic cancellation remains unknown and cannot be bypassed with a new request id', {timeout:60000},async t=>{
+  const {f,assetRef,reviewed,specRef}=await prepareDiagnostic(t),runtime=new RuntimeAdmissionService(f.root,f.authority),abort=new AbortController();
+  const running=runtime.diagnose(assetRef,reviewed.review_ref,specRef,'cancelled-diagnostic',abort.signal);
+  const diagnosticRoot=join(f.root,'qa/ui/assets/names-diagnostic/revisions/v1/diagnostics');
+  await until(async()=>{
+    try { return (await Promise.all((await readdir(diagnosticRoot)).map(async dir=>{
+      try {await readFile(join(diagnosticRoot,dir,'positive','playwright.config.mjs'));return true;}catch{return false;}
+    }))).some(Boolean); }catch{return false;}
+  });
+  abort.abort();
+  const result=await running;assert.equal(result.status,'cancelled');assert.equal(result.runtime_ready,false);
+  const status=await runtime.status('cancelled-diagnostic');assert.equal(status.state,'unknown');assert.ok(status.input_ref);
+  const requests=f.fixture.state.browserRequests;
+  await assert.rejects(runtime.diagnose(assetRef,reviewed.review_ref,specRef,'another-request'),/结果不明/);
+  await assert.rejects(runtime.diagnose(assetRef,reviewed.review_ref,specRef,'cancelled-diagnostic'),/未确认完成/);
+  await assert.rejects(f.service.gate(assetRef,reviewed.review_ref),/未核对诊断/);
+  assert.equal(f.fixture.state.browserRequests,requests);
+});
+
+test('UI-06: healthy control permits readiness when the current application has a real business defect', {timeout:60000},async t=>{
+  const {f,assetRef,reviewed,specRef}=await prepareDiagnostic(t,{targetFault:true});
+  const result=await new RuntimeAdmissionService(f.root,f.authority).diagnose(assetRef,reviewed.review_ref,specRef,'faulty-product');
+  assert.equal(result.runtime_ready,true);assert.ok(result.target_preflight_ref);
+  const input=JSON.parse(await readFile(join(f.root,result.input_ref.path),'utf8'));
+  assert.notEqual(input.environments[0].base_url,input.control.base_url,'the healthy control is separate from the faulty test target');
+  await f.service.gate(assetRef,reviewed.review_ref);
+});
+
 test('UI-06: empty/tautological assertions, mapping loss, syntax errors and missing primary scenarios are blocked',async t=>{
   const f=await setup(t);
   const constant=await f.make('constant',validCode.replace("expect(page.getByRole('listitem')).toHaveText([key])","expect(true).toBe(true)"));
@@ -181,6 +284,44 @@ test('UI-06: model approval cannot override deterministic blockers or invent evi
   }),/不存在的引文/);
   const raw=(await f.store.reindex()).records.filter(r=>r.kind==='design-review');
   assert.equal(raw.length,1,'invalid response must not create another approval');
+});
+
+test('UI-06: evidence anchors restore exact citations and invalid responses return preserved evidence references',async t=>{
+  const f=await setup(t);
+  const reviewed=await f.service.assess(f.taskRef,f.assetRef,'anchor-good',async input=>{
+    const d=decision(input),source=input.evidence.find(e=>e.ref.path==='requirements.md');
+    d.checks.forEach(c=>{c.evidence=[{anchor_id:source.anchors[0].anchor_id}];});
+    return {raw:JSON.stringify(d),provider:'fixture',model:'protocol'};
+  });
+  const saved=await f.store.load(reviewed.review_ref);
+  for(const c of saved.data.checks){assert.equal(c.evidence[0].ref.path,'requirements.md');assert.equal(c.evidence[0].quote,'R1: Saved Name persists after reload.');}
+  let refs;
+  await assert.rejects(f.service.assess(f.taskRef,f.assetRef,'anchor-bad',async input=>{
+    const d=decision(input);d.checks[0].evidence=[{anchor_id:'E9999L9999'}];
+    return {raw:JSON.stringify(d),provider:'fixture',model:'protocol'};
+  }),error=>{assert.match(error.message,/不存在的原文片段/);refs=error.artifact_refs;assert.equal(refs.length,3);return true;});
+  for(const ref of refs)assert.equal(sha256(await readFile(join(f.root,ref.path))),ref.sha256);
+  await assert.rejects(f.service.assess(f.taskRef,f.assetRef,'anchor-bad',()=>{throw new Error('must not repeat model call');}),
+    error=>{assert.deepEqual(error.artifact_refs,refs);return true;});
+});
+
+test('UI-06: rejected failed checks retain their original evidence as blocking issues',async t=>{
+  const f=await setup(t);
+  const reviewed=await f.service.assess(f.taskRef,f.assetRef,'failed-check-only',async input=>{
+    const d=decision(input,'revise');d.issues=[];
+    d.checks[1].reason='The expected value needs an independently verified requirement.';
+    return {raw:JSON.stringify(d),provider:'fixture',model:'protocol'};
+  });
+  assert.equal(reviewed.decision,'revise');
+  const saved=await f.store.load(reviewed.review_ref);
+  const issue=saved.data.issues.find(i=>i.rule==='D2'&&i.blocking);
+  assert.equal(issue.reason,saved.data.checks[1].reason);
+  assert.deepEqual(issue.evidence_refs,saved.data.checks[1].evidence.map(e=>e.ref));
+  await assert.rejects(f.service.gate(f.assetRef,reviewed.review_ref,false),/批准/);
+  await assert.rejects(f.service.assess(f.taskRef,f.assetRef,'contradictory-approval',async input=>{
+    const d=decision(input);d.checks[1].verdict='fail';
+    return {raw:JSON.stringify(d),provider:'fixture',model:'protocol'};
+  }),/失败规则没有对应阻断问题/);
 });
 
 test('UI-06: no improvement stops after two rejected evaluations; a third completed rejection never auto-approves',async t=>{
@@ -241,6 +382,37 @@ test('UI-06: actual Pi review tool starts a separate Agent with no tools or gene
   await host.dispose();
 });
 
+test('UI-06: actual Pi review and diagnostic tools register readiness and a new Agent can inspect it without replay', {timeout:60000},async t=>{
+  const {f,assetRef,specRef}=await prepareDiagnostic(t);
+  await new PluginManager(f.fixture.agentDir,f.root).install(join(repoRoot,'packages/ui-testing'),'package');
+  let host=new AgentHost(()=>{},()=>{},f.fixture.agentDir);t.after(()=>host.dispose());
+  const view=await host.create(f.root,true);let calls=0,reviewRef,diagnostic;
+  f.fixture.state.respond=body=>{
+    if(body.messages.some(m=>m.role==='system'&&JSON.stringify(m.content).includes('你是独立 UI 测试设计评估者'))){
+      const user=body.messages.find(m=>m.role==='user');return {text:JSON.stringify(decision(JSON.parse(typeof user.content==='string'?user.content:textContent(user.content))))};
+    }
+    if(calls++===0)return {tool:'ui_design_review',args:{task_ref:f.taskRef,asset_ref:assetRef,request_id:'tool-review'}};
+    const previous=JSON.parse(textContent(body.messages.filter(m=>m.role==='tool').at(-1).content));
+    if(calls===2){reviewRef=previous.output.review_ref;return {tool:'ui_design_diagnose',args:{request:{operation:'diagnose',
+      asset_ref:assetRef,review_ref:reviewRef,spec_ref:specRef,request_id:'tool-diagnostic'}}};}
+    diagnostic=previous;return {text:'Design and controlled diagnostics passed. No formal run has been executed.'};
+  };
+  await host.send(view.id,'/skill:ui-design-review Review and diagnose the isolated candidate; do not run formal regression.',[],[]);
+  if(f.fixture.state.responseError)throw f.fixture.state.responseError;
+  assert.equal(diagnostic.status,'completed');assert.equal(diagnostic.output.runtime_ready,true);
+  assert.equal(diagnostic.output.formal_run,false);
+  await host.dispose();host=new AgentHost(()=>{},()=>{},f.fixture.agentDir);
+  const reopened=await host.create(f.root,true),requests=f.fixture.state.browserRequests;let statusCalls=0,status;
+  f.fixture.state.respond=body=>{
+    if(statusCalls++===0)return {tool:'ui_design_diagnose',args:{request:{operation:'status',request_id:'tool-diagnostic'}}};
+    status=JSON.parse(textContent(body.messages.filter(m=>m.role==='tool').at(-1).content));return {text:'Stored readiness was verified without browser replay.'};
+  };
+  await host.send(reopened.id,'Inspect the existing tool-diagnostic request only.',[],[]);
+  if(f.fixture.state.responseError)throw f.fixture.state.responseError;
+  assert.equal(status.output.runtime_ready,true);assert.equal(status.output.state,'completed');
+  assert.equal(f.fixture.state.browserRequests,requests);
+});
+
 test('UI-06: composite observed values and reusable local assertion helpers remain valid',async t=>{
   const f=await setup(t);
   const composite=await f.make('composite',validCode.replace("expect(page.getByRole('listitem')).toHaveText([key])","expect([await page.getByRole('listitem').allTextContents()]).toEqual([[key]])"));
@@ -265,4 +437,62 @@ test('UI-06: composite observed values and reusable local assertion helpers rema
   assert.ok((await checkDesign(f.root,await f.store.put(configAsset))).issues.some(i=>i.rule==='D10'&&i.reason.includes('settings.js')));
   configAsset.id='names-config-complete';configAsset.data.files.push(settings);configAsset.data.content_sha256=assetDigest(configAsset);
   assert.deepEqual((await checkDesign(f.root,await f.store.put(configAsset))).issues,[]);
+});
+
+test('UI-06: compiler configuration and inherited options are frozen with the asset',async t=>{
+  const f=await setup(t);
+  const rootConfig='{"extends":"./tsconfig.base.json"}',baseConfig='{"compilerOptions":{"target":"ES2022"}}';
+  await writeFile(join(f.root,'tsconfig.json'),rootConfig);await writeFile(join(f.root,'tsconfig.base.json'),baseConfig);
+  assert.ok((await checkDesign(f.root,f.assetRef)).issues.some(i=>i.rule==='D10'&&i.reason.includes('编译配置')));
+  const asset=structuredClone(f.asset);asset.id='names-compiler';
+  asset.data.compiler_config_ref={path:'tsconfig.json',sha256:sha256(rootConfig)};asset.data.files.push(asset.data.compiler_config_ref);
+  asset.data.content_sha256=assetDigest(asset);
+  assert.ok((await checkDesign(f.root,await f.store.put(asset))).issues.some(i=>i.rule==='D10'&&i.reason.includes('tsconfig.base.json')));
+  asset.id='names-compiler-complete';asset.data.files.push({path:'tsconfig.base.json',sha256:sha256(baseConfig)});asset.data.content_sha256=assetDigest(asset);
+  const ref=await f.store.put(asset);assert.deepEqual((await checkDesign(f.root,ref)).issues,[]);
+  const reviewed=await f.service.assess(f.taskRef,ref,'compiler-config-review',response);
+  await writeFile(join(f.root,'tsconfig.base.json'),'{"compilerOptions":{"target":"ES2020"}}');
+  await assert.rejects(f.service.gate(ref,reviewed.review_ref,false),/摘要不匹配/);
+});
+
+test('UI-06 live: independent reviewer accepts grounded design and rejects unsupported requirements',{
+  skip:process.env.PI_UI_DESIGN_LIVE!=='1',timeout:300000,
+},async t=>{
+  const {f,asset,assetRef}=await prepareDiagnostic(t);
+  const selected=await copyLiveModel(f.fixture.agentDir,process.env.PI_UI_MODEL_DIR??join(homedir(),'.pi/agent'));
+  const runtime=await ModelRuntime.create({authPath:join(f.fixture.agentDir,'auth.json'),modelsPath:join(f.fixture.agentDir,'models.json')});
+  const model=(await runtime.getAvailable()).find(m=>m.provider===selected.provider&&m.id===selected.modelId);assert.ok(model);
+  const call=async input=>{
+    const {system_prompt:systemPrompt,...facts}=input;
+    const reviewer=new Agent({initialState:{model,tools:[],messages:[],thinkingLevel:'off',systemPrompt},convertToLlm,
+      streamFn:(m,context,options)=>runtime.streamSimple(m,context,options)});
+    const timer=setTimeout(()=>reviewer.abort(),120000);
+    try{await reviewer.prompt(JSON.stringify(facts));}finally{clearTimeout(timer);}
+    const message=[...reviewer.state.messages].reverse().find(m=>m.role==='assistant');
+    return {raw:textContent(message?.content),provider:model.provider,model:model.id,stop_reason:message?.stopReason??'error'};
+  };
+  const task=await f.store.load(f.taskRef);
+  const taskRef=await f.store.put({...task,id:'live-design-task',data:{...task.data,input_sha256:sha256('live-design-smoke')}});
+  const evidence=join(repoRoot,'evidence/ui-testing/ui-06',String(Date.now()));await mkdir(evidence,{recursive:true});
+  try{
+    const good=await f.service.assess(taskRef,assetRef,'live-grounded',call);
+    const wrong=await f.make('live-wrong',validCode.replace('toHaveText([key])','toHaveText([key.toUpperCase()])'),c=>{
+      c.data.sources[0].statement='R1 requires Save to uppercase every Name.';
+      c.data.cases[0].assertions[0].expected={from:'uppercase of the generated key'};
+    });
+    wrong.asset.id='names-live-wrong';wrong.asset.data.files.push(...asset.data.files.filter(r=>r.path!==f.scriptRef.path&&!wrong.asset.data.files.some(x=>x.path===r.path)));
+    wrong.asset.data.content_sha256=assetDigest(wrong.asset);const wrongRef=await f.store.put(wrong.asset);
+    const negativeTaskRef=await f.store.put({...task,id:'live-negative-sample',data:{...task.data,input_sha256:sha256('independent negative calibration sample')}});
+    const rejected=await f.service.assess(negativeTaskRef,wrongRef,'live-unsupported',call);
+    const saved=await f.store.load(rejected.review_ref);
+    await writeFile(join(evidence,'summary.json'),JSON.stringify({model:selected,good,rejected,
+      scope:'UI-06 semantic smoke only; UI-10 repeated calibration remains required'},null,2));
+    assert.equal(good.decision,'approved','reasonable grounded design must not be universally rejected');
+    assert.notEqual(rejected.decision,'approved');
+    assert.ok(saved.data.issues.some(i=>i.rule==='D2'&&i.blocking),'unsupported statement must be traced to original R1');
+  }finally{
+    await cp(join(f.root,'qa/ui'),join(evidence,'qa/ui'),{recursive:true});
+    await cp(join(f.root,'requirements.md'),join(evidence,'requirements.md'));
+    t.diagnostic(`UI-06 live evidence: ${evidence}`);
+  }
 });

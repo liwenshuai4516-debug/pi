@@ -6,3 +6,4 @@ export * from './recording.js';
 export * from './design.js';
 export * from './review.js';
 export * from './diagnostics.js';
+export * from './runtime-admission.js';
