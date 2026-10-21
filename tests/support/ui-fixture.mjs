@@ -7,7 +7,7 @@ import { setupFixture } from './fixture.mjs';
 export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 /** 只用于流程验收的页面，数据局限于独立浏览器 context 的 localStorage。 */
-export async function setupUiFixture() {
+export async function setupUiFixture({ discardPersistence = false } = {}) {
   const fixture = await setupFixture();
   const server = createServer((_req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -21,7 +21,7 @@ export async function setupUiFixture() {
       })); }
       document.querySelector('form').onsubmit = event => {
         event.preventDefault(); names.push(new FormData(event.target).get('name'));
-        localStorage.setItem('names', JSON.stringify(names)); render(); event.target.reset();
+        ${discardPersistence ? '' : "localStorage.setItem('names', JSON.stringify(names));"} render(); event.target.reset();
       }; render();</script></html>`);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

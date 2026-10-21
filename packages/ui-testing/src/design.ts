@@ -68,8 +68,11 @@ export async function checkDesign(root: string, ref: FileRef): Promise<DesignChe
   options = { ...options, rootDir: root, noEmit: true, incremental: false, composite: false, skipLibCheck: true,
     allowJs: true, checkJs: true, allowImportingTsExtensions: true, resolveJsonModule: true };
   const scriptRefs = [...new Map(asset.data.bindings.map(b => [b.script_ref.path, b.script_ref])).values()];
-  const paths = await Promise.all(scriptRefs.map(f => workspacePath(root, f.path)));
+  const paths = await Promise.all(asset.data.files.filter(f => /\.(?:[cm]?[jt]s|[jt]sx)$/.test(f.path)).map(f => workspacePath(root, f.path)));
   const program = ts.createProgram(paths, options);
+  for (const scriptRef of scriptRefs) {
+    if (!program.getSourceFile(await workspacePath(root, scriptRef.path))) issue('D3', '映射脚本不是可解析的 TypeScript/JavaScript 文件', scriptRef);
+  }
   for (const diagnostic of ts.getPreEmitDiagnostics(program).filter(d => d.category === ts.DiagnosticCategory.Error)) {
     const path = diagnostic.file ? relative(root, diagnostic.file.fileName).replaceAll('\\', '/') : undefined;
     issue('D3', `TypeScript TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}`,

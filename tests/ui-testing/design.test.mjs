@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ArtifactStore, assetDigest, checkDesign, designEvidence, DesignReviewService, sha256 } from '../../packages/ui-testing/dist/index.js';
+import { ArtifactStore, assetDigest, checkDesign, designEvidence, DesignReviewService, runDesignDiagnostics, checkDiagnosticReport, sha256 } from '../../packages/ui-testing/dist/index.js';
 import { artifact, scope, cases, designReview } from '../support/ui-artifacts.mjs';
 import { setupUiFixture, textContent, repoRoot } from '../support/ui-fixture.mjs';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
@@ -62,6 +62,65 @@ function decision(input,kind='approved',improvement=input.previous?'improved':'f
 }
 const response = input => ({raw:JSON.stringify(decision(input)),provider:'fixture',model:'protocol'});
 
+test('UI-06: native diagnostic service preserves positive and negative reports without granting execution readiness', {timeout:60000},async t=>{
+  const f=await setup(t),broken=await setupUiFixture({discardPersistence:true});t.after(()=>broken.close());
+  const scriptBefore=await readFile(join(f.root,f.scriptRef.path));
+  const base='qa/ui/assets/names/revisions/v1/probes';
+  const config=await f.store.putFile(`${base}/base.config.mjs`,'export default {timeout:10000,expect:{timeout:400}};');
+  const environment=url=>({schema_version:'1.0',environment_id:'test',deployment_version:'fixture-v1',base_url:url,
+    role:'tester',identity:{selector:'h1',text:'Names'},initial_state:{selector:'button',text:'Save'},auth:{kind:'none'},isolation:'context',timeout_ms:500});
+  const goodEnv=await f.store.putFile(`${base}/positive.json`,JSON.stringify(environment(f.fixture.url)));
+  const badEnv=await f.store.putFile(`${base}/negative.json`,JSON.stringify(environment(broken.url)));
+  const badSource=await f.store.putFile(`${base}/discard-persistence.html`,await (await fetch(broken.url)).text());
+  const spec={environment_ref:goodEnv,config_ref:config,timeout_ms:15000,probes:[{id:'discard-persistence',environment_ref:badEnv,
+    config_ref:config,mutation_refs:[badSource],description:'Save updates the visible list but fails to persist after reload.',assertion_ids:['A1']}]};
+  const specRef=await f.store.putFile(`${base}/plan.json`,JSON.stringify(spec));
+  const asset=structuredClone(f.asset);asset.id='names-diagnostic';asset.data.files.push(config,goodEnv,badEnv,badSource,specRef);
+  asset.data.content_sha256=assetDigest(asset);const assetRef=await f.store.put(asset);
+  const reviewed=await f.service.assess(f.taskRef,assetRef,'diagnostic-review',response);
+  const validation=await runDesignDiagnostics(f.root,assetRef,reviewed.review_ref,specRef);
+  assert.equal(validation.status,'validated');assert.equal(validation.formal_run,false);assert.equal(validation.rounds.length,2);
+  assert.deepEqual(validation.rounds.flatMap(r=>r.problems),[]);
+  const saved=JSON.parse(await readFile(join(f.root,validation.summary_ref.path),'utf8'));
+  assert.equal(saved.purpose,'design-validation');assert.deepEqual(saved.asset_ref,assetRef);
+  assert.equal(saved.rounds[1].id,'discard-persistence');
+  assert.ok(saved.rounds[1].evidence_refs.some(r=>r.path.endsWith('trace.zip')));
+  const negative=JSON.parse(await readFile(join(f.root,saved.rounds[1].report_ref.path),'utf8'));
+  assert.ok(JSON.stringify(negative).includes('toHaveText'));
+  assert.deepEqual(checkDiagnosticReport(f.root,asset,negative,['A1']),[]);
+  const nativeTests=report=>report.suites.flatMap(function walk(s){return [...s.specs.flatMap(spec=>spec.tests),...(s.suites??[]).flatMap(walk)];});
+  const setupFailure=structuredClone(negative);nativeTests(setupFailure)[0].results[0].steps=[];
+  assert.ok(checkDiagnosticReport(f.root,asset,setupFailure,['A1']).some(p=>p.includes('expect')));
+  const timeout=structuredClone(negative);nativeTests(timeout)[0].results[0].status='timedOut';
+  assert.ok(checkDiagnosticReport(f.root,asset,timeout,['A1']).length);
+  const unexpectedPass=structuredClone(negative);nativeTests(unexpectedPass)[0].results[0].status='passed';
+  assert.ok(checkDiagnosticReport(f.root,asset,unexpectedPass,['A1']).length);
+  const expectedFailure=structuredClone(negative);nativeTests(expectedFailure)[0].expectedStatus='failed';
+  assert.ok(checkDiagnosticReport(f.root,asset,expectedFailure,['A1']).length);
+  const retried=structuredClone(negative);nativeTests(retried)[0].results.push(nativeTests(retried)[0].results[0]);
+  assert.ok(checkDiagnosticReport(f.root,asset,retried,['A1']).length);
+  const withLifecycle=record=>{
+    const report=structuredClone(negative);
+    nativeTests(report)[0].results[0].attachments.push({name:'ui-data-lifecycle',body:Buffer.from(JSON.stringify({
+      residual:['owned-1'],records:[{business_key:'owned-1',...record}],
+    })).toString('base64')});return report;
+  };
+  assert.ok(checkDiagnosticReport(f.root,asset,withLifecycle({cleanup_state:'failed'}),['A1']).some(p=>p.includes('清理')));
+  assert.deepEqual(checkDiagnosticReport(f.root,asset,withLifecycle({cleanup_state:'retained',cleanup_reason:'Explicit fixture retention agreement'}),['A1']),[]);
+  await assert.rejects(f.service.gate(assetRef,reviewed.review_ref),/运行就绪/,
+    'raw diagnostic evidence is not a trusted runtime admission receipt');
+  await assert.rejects(runDesignDiagnostics(f.root,f.assetRef,reviewed.review_ref,specRef),/纳入获批修订/);
+  const unavailable=await f.store.putFile(`${base}/unreachable.json`,JSON.stringify(environment('http://127.0.0.1:1')));
+  const unavailableSpec=await f.store.putFile(`${base}/unreachable-plan.json`,JSON.stringify({...spec,probes:[{...spec.probes[0],environment_ref:unavailable}]}));
+  const other=structuredClone(asset);other.id='names-unreachable';other.data.files.push(unavailable,unavailableSpec);other.data.content_sha256=assetDigest(other);
+  const otherRef=await f.store.put(other),otherReview=await f.service.assess(f.taskRef,otherRef,'unreachable-review',response);
+  const blocked=await runDesignDiagnostics(f.root,otherRef,otherReview.review_ref,unavailableSpec);
+  assert.equal(blocked.status,'blocked');assert.equal(blocked.rounds.length,2);
+  assert.equal(blocked.rounds[1].process_ref,undefined,'preflight failure must stop before candidate business actions');
+  assert.ok(blocked.rounds[1].problems.some(p=>p.includes('site')));
+  assert.deepEqual(await readFile(join(f.root,f.scriptRef.path)),scriptBefore,'diagnostics must not weaken or rewrite the candidate');
+});
+
 test('UI-06: TypeScript and binding checks accept a complete source-grounded candidate',async t=>{
   const f=await setup(t),check=await checkDesign(f.root,f.assetRef);
   assert.deepEqual(check.issues,[]);assert.deepEqual(check.coverage.missing,[]);
@@ -84,6 +143,11 @@ test('UI-06: empty/tautological assertions, mapping loss, syntax errors and miss
   assert.ok((await checkDesign(f.root,missing.assetRef)).issues.some(i=>i.rule==='D1'));
   const skip=await f.make('skip',validCode.replace("test('C1", "test.skip('C1"));
   assert.ok((await checkDesign(f.root,skip.assetRef)).issues.some(i=>i.rule==='D6'));
+  const textRef=await f.store.putFile('qa/ui/assets/names/revisions/text/script.txt',validCode);
+  const textAsset=structuredClone(f.asset);textAsset.id='names-text';
+  textAsset.data.files=textAsset.data.files.map(r=>r.path===f.scriptRef.path?textRef:r);
+  textAsset.data.bindings[0].script_ref=textRef;textAsset.data.content_sha256=assetDigest(textAsset);
+  assert.ok((await checkDesign(f.root,await f.store.put(textAsset))).issues.some(i=>i.rule==='D3'&&i.reason.includes('可解析')));
 });
 
 test('UI-06: trusted design approval survives restart; forged approval and stale files cannot pass gate',async t=>{
@@ -195,4 +259,10 @@ test('UI-06: composite observed values and reusable local assertion helpers rema
   const badAsset=structuredClone(bad.asset);badAsset.id='names-bad-helper';badAsset.data.files.push(badHelper);badAsset.data.content_sha256=assetDigest(badAsset);
   const badRef=await f.store.put(badAsset);
   assert.ok((await checkDesign(f.root,badRef)).issues.some(i=>i.rule==='D4'&&i.evidence_refs.some(r=>r.path===badHelper.path)));
+  const config=await f.store.putFile('qa/ui/assets/names/revisions/config/base.config.mjs',"import settings from './settings.js';export default settings;");
+  const settings=await f.store.putFile('qa/ui/assets/names/revisions/config/settings.js','export default {timeout:10000};');
+  const configAsset=structuredClone(f.asset);configAsset.id='names-config';configAsset.data.files.push(config);configAsset.data.content_sha256=assetDigest(configAsset);
+  assert.ok((await checkDesign(f.root,await f.store.put(configAsset))).issues.some(i=>i.rule==='D10'&&i.reason.includes('settings.js')));
+  configAsset.id='names-config-complete';configAsset.data.files.push(settings);configAsset.data.content_sha256=assetDigest(configAsset);
+  assert.deepEqual((await checkDesign(f.root,await f.store.put(configAsset))).issues,[]);
 });

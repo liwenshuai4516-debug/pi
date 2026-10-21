@@ -127,3 +127,9 @@ browser_type 只接受预先声明的公开合成 test_data，或当前 recordin
 评估最多三次，异常也消耗调用预算；相同请求去重，未知调用结果不自动重试。退回后保存新修订再评估，无改善或缺事实时保持未批准。批准登记和预算位于 Pi 会话目录下私有 `ui-review-authority/`；业务评估仍保存在被测项目 `qa/ui/`。换工作区或迁移时，仅复制项目里的 approved JSON 不能取得执行授权；私有登记丢失时需要重新评估。
 
 库入口 `DesignReviewService.gate(assetRef, reviewRef, false)` 验证设计批准、规则版本、真实文件与依赖。默认 gate 要求运行就绪，目前明确拒绝：设计批准不能代替真实定位诊断和隔离错误结果下的断言自检。上述诊断及其可信登记完成前，UI-06 不算完成。当前受控协议模型验证接线与门禁，不能证明真实模型的语义评估质量。
+
+诊断内部库入口 `runDesignDiagnostics(root, assetRef, reviewRef, specRef, signal?)` 复用被测项目安装的 Playwright CLI、config、JSON reporter 和 trace。`diagnosticSpecSchema` 声明正对照环境/config 及错误应用副本的环境/config、变异来源、目标 assertion_ids；这些文件都须进入获批候选的 files，错误副本使用不同 origin，角色保持一致。正对照必须匹配 scope；每个环境先核验站点、身份和初态，再启动全新 runner context。认证继续使用私有环境变量引用，不把 storageState 路径写入生成配置。
+
+诊断不改候选脚本和预期值，不重试业务操作。它逐 case 对账原生报告：正对照的映射断言步骤全部通过；错误副本的指定 expect 步骤实际失败；启动/导航失败、超时、预期失败、重试、非目标失败和未确认清理的残留均不能冒充检错证明；明确约定保留的数据仍如实留证。配置、输入、报告、退出码和附件摘要位于修订下 `diagnostics/<id>/`，显式标记 `formal_run:false`；脚本/输入中途变化会保留证据并阻断。
+
+该库目前仅用于受控验证，尚未注册 Agent 工具，也未登记可信运行授权；`validated` 表示诊断证据核对通过，默认执行门禁仍然拒绝。错误副本来源与部署版本由项目提供并接受独立设计审查，当前实现不能自动证明任意远端部署与源码一致。后续仍须完成工具入口、请求去重/未知执行核对、可信运行登记与失效检查，才可交接 UI-07。
