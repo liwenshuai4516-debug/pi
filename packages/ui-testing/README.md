@@ -1,6 +1,6 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.0，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断、正式执行，以及确定性统计、失败分析和独立结果评估。完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；按需总流程及重复模型校准尚待后续任务。
+当前版本 0.1.0，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断、正式执行、确定性统计、失败分析和独立结果评估，以及按需任务和阶段交接。完整验收仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；模型重复校准与 P1 恢复维护尚待后续任务。
 
 UI-06 已接入候选静态检查、独立设计评估与受控诊断登记，具体验收状态以实施计划为准。运行就绪不等于产品通过，也不替代后续正式执行的当前环境预检。
 
@@ -177,3 +177,27 @@ Skill `/skill:ui-test-run` 调用 `ui_test_run`，首期单 chromium 项目、�
 结果位于 `runs/<id>/results/<result-id>/`；分析保存至 `runs/<id>/analysis/<analysis-id>/`，报告正文、follow-up.json、评估轮次和交付 Markdown 位于 `runs/<id>/report/<report-id>/`。`verifyResults` 每次从原生事实重算，证据变化要求新结果修订；不可变产物避免覆盖历史。同 ID、同事实重复解析复用已有结果，不依赖聊天历史。
 
 验证见 `tests/ui-testing/results.test.mjs`、`result-review.test.mjs`。真实模型冒烟命令为 `PI_UI_RESULT_LIVE=1 node --test --test-name-pattern="UI-08 live" tests/ui-testing/result-review.test.mjs`，证据保存在 `evidence/ui-testing/ui-08/`。协议 fixture 仅验证调用/门禁；单次真实冒烟也不能代替 UI-10 重复校准或证明任意业务的归因质量。
+
+## 按需任务与阶段交接（UI-09）
+
+调用 `/skill:ui-test-workflow`。入口 `ui_test_workflow` 只发现资产/能力和保存任务，不代替现有录制、设计、执行或评估工具；Skill 正文仍通过 Pi read 按需加载。参数统一 `{request:{operation,...}}`：
+
+| operation | 输入 | 作用 |
+|---|---|---|
+| catalog | 无 | 重建索引并列出资产修订、当前可信 review_refs、runtime_ready、就绪缺口及简短能力目录；不启动浏览器 |
+| start | input：task_id、mode，以及下述引用 | 建立持久化任务和所需阶段；同 ID 同输入只读旧状态，不回退已完成阶段 |
+| status | task_id | 从磁盘查最新 task_ref 和 checkpoint，不依赖旧聊天；runner 更新批次后使用此入口取得新摘要 |
+| checkpoint | task_ref、stage、output_refs | 核对真实 manifest、范围、录制来源/候选、批准或报告后推进，不能凭完成文字跳阶段 |
+| block | task_ref、reasons | 保存具体阻塞，保留阶段与既有产物；不重放未知业务动作 |
+
+mode 为 new/record 时指定已登记 scope_ref，可选 discovery=source/browser/both；默认有 base_url 时为 both，否则 source。顺序为 discover-record → case-design → design-review。source 模式须有源码清单和 draft_refs，浏览器模式须有完整 recording。候选及其修订须关联本任务实际发现的 inventory/recording；设计评估批准由原可信门禁验证。record 到此结束；new 在准备任务完成后，根据用户原有的新建并执行意图，为获批资产另建 execute 任务。设计批准但尚无运行证明时，按 `ui-design-review` 先完成诊断，再通过原执行门禁，不自填 readiness。
+
+execute 指定 asset_ref，顺序为 execute → analyze → result-review；analyze 指定已有 run_ref，顺序为 analyze → result-review；view 指定 run_ref，读取其原始证据后以该 run_ref checkpoint 即结束，不运行分析模型或浏览器。工具不会自动执行后续阶段，仍由 Agent 根据目录选择现有能力。CLI `schema workflow-start` 提供输入结构。失败集合重跑和真正中断续跑留待 UI-11，不把它们混同于执行全部已有资产。
+
+任务位于 `qa/ui/tasks/<id>/manifest.json`，包含冻结 workflow mode/source_run_ref/discovery、输入摘要、已完成阶段、输出引用、实际 run_ids 和阻塞。执行后先 status，再以最新 task_ref checkpoint；旧摘要冲突返回错误，不覆盖最新任务。结果评估 checkpoint 同时调用已有 deliver，返回并保存 delivery_ref；partial 报告明确保留完整性未通过，任务 completed 不等于测试通过或完整报告获批。
+
+缺 Skill、read 工具、所需测试 MCP 工具或不兼容 Pi/Playwright 版本会登记 blocked。只分析旧结果不要求安装浏览器 CLI，不重录来源已变更的脚本来掩盖旧证据缺口。同一项目/环境/地址的重叠模块若仍有活跃或未核对启动登记，改任务 ID 或 scope ID 也不能盲目新执行；不同环境及明确无交集模块可独立处理。该检查用于本工作流入口，不能充当通用 shell/MCP 沙箱。
+
+验证见 `tests/ui-testing/workflow.test.mjs`：独立进程完全退出后新进程新会话发现原批准并产生新 run，工具日志无录制/生成/重审；只分析旧失败和查看证据的路径没有新增浏览器请求；仅录制、新建交接、阶段门禁、能力缺失、版本不兼容、未知启动及阶段报告均有检查。`recording.test.mjs` 还把真实 MCP 自动录制交接至设计获批，确认未启动正式执行。这些受控协议测试不代替 UI-10 的真实模型自主工作流及重复校准。
+
+构建后可另运行 `node tests/electron/ui-workflow.mjs`：通过真实 Electron 窗口的隔离 IPC 创建会话并执行，完全退出客户端及子进程后重开、新建会话，复用构建包和原批准生成新 run。证据在 `evidence/ui-testing/ui-09/<timestamp>/`；环境、认证、浏览器数据均使用临时配置，不修改用户目录。

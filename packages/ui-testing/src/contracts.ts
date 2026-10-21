@@ -39,6 +39,7 @@ const testcase = object({ case_id: id, module_id: id, feature_id: id, scenario_i
 const instance = object({ instance_id: id, case_id: id, revision: id, data_row_id: id, browser_project: id });
 export const finalStates = ['passed', 'failed', 'blocked', 'skipped', 'cancelled', 'not-run', 'flaky', 'unknown'] as const;
 export const stages = ['discover-record', 'case-design', 'design-review', 'execute', 'analyze', 'result-review'] as const;
+export const workflowModes = ['new', 'record', 'execute', 'analyze', 'view'] as const;
 const bodies = {
   scope: object({ project_id: id, environment_id: id, role: Type.String({ minLength: 1 }), goal: Type.String({ minLength: 1 }),
     base_url: Type.Optional(Type.String()), allowed_actions: strings, sources: Type.Array(source),
@@ -69,6 +70,8 @@ const bodies = {
     readiness: enumOf(['design-only', 'runtime-verified']), content_sha256: digest, gaps: strings }),
   'design-review': object(assessment),
   task: object({ intent: enumOf(['record', 'execute', 'analyze', 'view', 'resume', 'rerun-failed', 'rerun-all']),
+    workflow: Type.Optional(object({ mode: enumOf([...workflowModes]), source_run_ref: Type.Optional(fileRefSchema),
+      discovery: Type.Optional(enumOf(['source', 'browser', 'both'])) })),
     scope_ref: fileRefSchema, state: enumOf(['pending', 'running', 'blocked', 'completed', 'cancelled']),
     stage: enumOf([...stages]), completed_stages: Type.Array(enumOf([...stages])), input_sha256: digest,
     asset_refs: refs, run_ids: Type.Array(id), output_refs: refs, blockers: strings }),
@@ -149,4 +152,8 @@ export const capabilities = [{ capability_id: 'ui-validate-artifact', capability
   input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_result_review',
   side_effects: 'model-call-and-report-records', safe_to_repeat: false,
   requires: { pi: '1.2.0', schema: '1.0' }, errors: ['invalid-input', 'precondition', 'review-rejected', 'insufficient-evidence', 'cancelled'],
+}, { capability_id: 'ui-test-workflow', capability_version: '0.1.0',
+  input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_test_workflow',
+  side_effects: 'task-index-and-report-delivery-records', safe_to_repeat: true,
+  requires: { pi: '1.2.0', schema: '1.0' }, errors: ['invalid-input', 'precondition', 'missing-capability', 'incompatible-version', 'review-rejected', 'cancelled'],
 }];

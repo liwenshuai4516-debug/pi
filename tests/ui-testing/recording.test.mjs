@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { RecordingService, ArtifactStore, UiDataScope, sha256, validateArtifact } from '../../packages/ui-testing/dist/index.js';
-import { artifact, scope } from '../support/ui-artifacts.mjs';
+import { RecordingService, ArtifactStore, UiDataScope, UiWorkflowService, DesignReviewService, assetDigest, sha256, validateArtifact } from '../../packages/ui-testing/dist/index.js';
+import { artifact, scope, cases } from '../support/ui-artifacts.mjs';
+import { response as designResponse } from '../support/ui-design-fixture.mjs';
 import { setupUiFixture, repoRoot, textContent } from '../support/ui-fixture.mjs';
 import { AgentHost } from '../../dist/main/agent/agent-host.js';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
@@ -107,6 +108,10 @@ test('seed',async({uiData,page})=>{const row=await uiData.prepare({creation_meth
   const view=await host.create(fixture.project,true);
   await until(async()=>(await host.listMcp(view.id)).servers.some(s=>s.state==='connected'));
   assert.ok(view.skills.some(s=>s.name==='ui-discover-record'));
+  const workflow=new UiWorkflowService(fixture.project,join(fixture.agentDir,'sessions/ui-review-authority'),{
+    tools:host.entries.get(view.id).agent.state.tools.map(t=>t.name),skills:view.skills.map(s=>s.name)});
+  let workflowTask=await workflow.start({task_id:'browser-record-only',mode:'record',scope_ref:config.scope_ref,discovery:'browser'});
+  assert.equal(workflowTask.task.data.state,'running',JSON.stringify(workflowTask.blockers));
   let round=0,session,key,observation,finalInventoryRef,recordingRef;
   const generated=`import {test,expect} from 'playwright/test';
 test('Name persists',async({page})=>{const key='qa-'+crypto.randomUUID();await page.goto('/');
@@ -148,6 +153,27 @@ test('Name persists',async({page})=>{const key='qa-'+crypto.randomUUID();await p
   await assert.rejects(service.call(session,{operation_id:'late',tool:'browser_snapshot',input:{},intent:'Late'},async()=>okay('no')),/登记结束/);
   const replay=await promisify(execFile)(process.execPath,[join(repoRoot,'node_modules/playwright/cli.js'),'test','recorded.spec.ts','--reporter=json'],{cwd:fixture.project,timeout:30000});
   assert.equal(JSON.parse(replay.stdout).stats.expected,1,'draft replay is design validation, not formal execution');
+  const beforeReview=fixture.state.browserRequests;
+  workflowTask=await workflow.checkpoint(workflowTask.task_ref,'discover-record',[recordingRef]);
+  const selectedScope=await store.load(config.scope_ref),candidateCases=cases();candidateCases.id='record-only-cases';
+  candidateCases.data.scope_ref=config.scope_ref;candidateCases.data.sources=selectedScope.data.sources;
+  candidateCases.data.data_rules_ref=config.data_rules_ref;candidateCases.data.cases[0].scenario_id='save-reload';
+  candidateCases.data.cases[0].assertions[0].expected={from:'generated input key'};
+  const casesRef=await store.put(candidateCases);
+  const reviewedCode=generated.replace("test('Name persists'","test('C1 Name persists'").replace(
+    "await page.reload();await expect(page.getByRole('listitem')).toHaveText([key]);",
+    "await page.reload();await test.step('A1 persistence after reload',async()=>{await expect(page.getByRole('listitem')).toHaveText([key]);});");
+  const scriptRef=await store.putFile('qa/ui/assets/record-only/revisions/v1/name.spec.ts',reviewedCode);
+  const candidate=artifact('asset',{revision:'v1',module_ids:['names'],scope_ref:config.scope_ref,inventory_ref:finalInventoryRef,
+    cases_ref:casesRef,recording_refs:[recordingRef],files:[scriptRef,config.data_rules_ref],
+    bindings:[{case_id:'C1',script_ref:scriptRef,test_title:'C1 Name persists',assertion_ids:['A1']}],
+    dependencies:[{name:'playwright',version:'1.62.1'}],readiness:'design-only',content_sha256:'0'.repeat(64),gaps:[]},'record-only');
+  candidate.data.content_sha256=assetDigest(candidate);const candidateRef=await store.put(candidate);
+  workflowTask=await workflow.checkpoint(workflowTask.task_ref,'case-design',[candidateRef]);
+  const review=await new DesignReviewService(fixture.project,workflow.authorityRoot).assess(workflowTask.task_ref,candidateRef,'record-only-review',designResponse);
+  workflowTask=await workflow.checkpoint(workflowTask.task_ref,'design-review',[review.review_ref]);
+  assert.equal(workflowTask.task.data.state,'completed');assert.deepEqual(workflowTask.task.data.run_ids,[]);
+  assert.equal(workflowTask.follow_up,null);assert.equal(fixture.state.browserRequests,beforeReview,'record-only approval must not start formal execution');
 });
 
 test('UI-05: actual Pi source read yields a persisted unrecorded draft without browser actions', {timeout:30000},async t=>{

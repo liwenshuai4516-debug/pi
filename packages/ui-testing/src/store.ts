@@ -191,7 +191,8 @@ export class ArtifactStore {
         throw new WorkflowError('precondition', '任务不能回退完成阶段或改写终态');
       }
       const frozen = (task: Artifact<'task'>) => ({ created_at: task.created_at, intent: task.data.intent,
-        scope_ref: task.data.scope_ref, input_sha256: task.data.input_sha256, asset_refs: task.data.asset_refs, run_ids: task.data.run_ids });
+        scope_ref: task.data.scope_ref, input_sha256: task.data.input_sha256, asset_refs: task.data.asset_refs, run_ids: task.data.run_ids,
+        workflow: task.data.workflow });
       if (JSON.stringify(canonical(frozen(next))) !== JSON.stringify(canonical(frozen(old)))) {
         throw new WorkflowError('precondition', '任务输入或已登记批次不能改写，请新建任务');
       }

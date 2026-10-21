@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { validateArtifact, validateCapabilityResult, verifyReferences, sha256 } from '../../packages/ui-testing/dist/index.js';
+import { validateArtifact, validateCapabilityResult, verifyReferences, sha256, capabilities } from '../../packages/ui-testing/dist/index.js';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
 import { AgentHost } from '../../dist/main/agent/agent-host.js';
 import { setupFixture } from '../support/fixture.mjs';
@@ -78,6 +78,10 @@ test(`UI-02: Pi package installs and invokes its tool and Skill (${source})`, as
   await manager.install(join(repoRoot, source), 'package');
   const view = await host.create(fixture.project, true);
   assert.ok(view.skills.some(s => s.name === 'ui-artifact-check'));
+  for (const skill of ['ui-test-workflow','ui-discover-record','ui-case-design','ui-design-review','ui-test-run','ui-result-analysis','ui-result-review']) {
+    assert.ok(view.skills.some(s => s.name === skill),`${source} must discover ${skill}`);
+  }
+  for (const capability of capabilities) assert.ok(host.entries.get(view.id).agent.state.tools.some(t => t.name === capability.tool),`${source} must register ${capability.tool}`);
   assert.ok(host.entries.get(view.id).agent.state.tools.some(t => t.name === 'ui_validate_artifact'));
   let called = false;
   fixture.state.respond = body => {

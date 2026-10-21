@@ -6,11 +6,13 @@ import { validateArtifact, WorkflowError } from './validation.js';
 import { registerDesignTools } from './design-extension.js';
 import { registerRunTools } from './run-extension.js';
 import { registerResultTools } from './result-extension.js';
+import { registerWorkflowTools } from './workflow-extension.js';
 
 export default function (pi: ExtensionAPI) {
   registerDesignTools(pi);
   registerRunTools(pi);
   registerResultTools(pi);
+  registerWorkflowTools(pi);
   let activeBackend: string | undefined;
   let activeSession: import('./contracts.js').FileRef | undefined;
   pi.on('tool_call', event => {
