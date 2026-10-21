@@ -7,6 +7,33 @@ import { AgentHost } from '../../dist/main/agent/agent-host.js';
 import { saveModelConfig } from '../../dist/main/models/model-config.js';
 import { setupFixture, until } from '../support/fixture.mjs';
 
+// 从不同工作区经真实 SDK 请求验证资源加载，以及 Pi 自定义/追加提示词的优先级。
+for (const custom of [false, true]) {
+  test(`system prompt Markdown: ${custom ? 'custom override and append' : 'bundled default'}`, async (t) => {
+    const fixture = await setupFixture();
+    const host = new AgentHost(() => {}, () => {}, fixture.agentDir);
+    t.after(async () => {
+      await host.dispose();
+      fixture.close();
+    });
+    const defaultPrompt = (await readFile(
+      new URL('../../src/main/agent/prompts/system.md', import.meta.url), 'utf8',
+    )).trimEnd();
+    assert.ok(defaultPrompt.length > 0);
+    if (custom) await writeFile(join(fixture.agentDir, 'SYSTEM.md'), 'CUSTOM_SYSTEM_PROOF');
+    await writeFile(join(fixture.agentDir, 'APPEND_SYSTEM.md'), 'APPEND_SYSTEM_PROOF');
+    const view = await host.create(fixture.project, true);
+    await host.send(view.id, 'SYSTEM_PROMPT_PROOF', [], []);
+    const system = fixture.state.payloads.at(-1).messages
+      .filter((message) => message.role === 'system' || message.role === 'developer')
+      .map((message) => message.content).join('\n');
+    assert.ok(system.includes(custom ? 'CUSTOM_SYSTEM_PROOF' : defaultPrompt));
+    if (custom) assert.ok(!system.includes(defaultPrompt));
+    assert.ok(system.includes('APPEND_SYSTEM_PROOF'));
+    assert.ok(system.includes(fixture.project));
+  });
+}
+
 test(
   'real SDK: streaming, tool execution, cancellation, independent sessions and persisted continuation',
   { timeout: 60000 },
