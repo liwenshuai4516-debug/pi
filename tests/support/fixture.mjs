@@ -43,6 +43,20 @@ export async function setupFixture() {
           `data: ${JSON.stringify({ id: 'test-completion', object: 'chat.completion.chunk', model: 'fixture-agent', created: Math.floor(Date.now() / 1000), choices: [{ index: 0, delta, finish_reason }] })}\n\n`,
         );
       send({ role: 'assistant', content: '' });
+      // 特定集成测试可提供受控模型响应；浏览器/MCP 仍调用真实实现。
+      if (state.respond) {
+        const answer = await state.respond(body);
+        if (answer.tool) {
+          send({ tool_calls: [{ index: 0, id: `fixture-${state.requests}`, type: 'function',
+            function: { name: answer.tool, arguments: JSON.stringify(answer.args ?? {}) } }] });
+          send({}, 'tool_calls');
+        } else {
+          send({ content: answer.text });
+          send({}, 'stop');
+        }
+        response.end('data: [DONE]\n\n');
+        return;
+      }
       if (prompt.includes('WAIT_FOR_STOP')) {
         state.waiting++;
         send({ content: '等待停止测试' });
@@ -123,7 +137,8 @@ export async function setupFixture() {
       }
       response.end('data: [DONE]\n\n');
     } catch (error) {
-      response.writeHead(500);
+      state.responseError = error;
+      if (!response.headersSent) response.writeHead(500);
       response.end(String(error));
     }
   });
