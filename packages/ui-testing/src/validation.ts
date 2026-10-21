@@ -95,6 +95,15 @@ export function validateArtifact(input: unknown): Artifact {
     }
   }
   if (artifact.kind === 'run') unique((artifact.data as Artifact<'run'>['data']).plan.map(i => i.instance_id), 'instance_id');
+  if (artifact.kind === 'results') {
+    const data = (artifact as Artifact<'results'>).data;
+    unique(data.instances.map(i => i.instance_id), 'results instance_id');
+    if (data.planned_count !== data.instances.length || Object.entries(data.counts).some(([status, count]) =>
+      count !== data.instances.filter(i => i.status === status).length)) {
+      throw new WorkflowError('invalid-input', '统计数量必须与全部互斥实例终态一致');
+    }
+    for (const instance of data.instances) unique(instance.attempts.map(a => String(a.attempt)), 'attempt');
+  }
   return artifact;
 }
 

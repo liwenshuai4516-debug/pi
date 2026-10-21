@@ -1,6 +1,6 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.0，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断，以及正式执行入口。完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；统计、失败归因、结果评估与按需总流程尚待后续任务。
+当前版本 0.1.0，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断、正式执行，以及确定性统计、失败分析和独立结果评估。完整业务工作流仍按[实施计划](../../docs/UI测试能力实施计划书.md)推进；按需总流程及重复模型校准尚待后续任务。
 
 UI-06 已接入候选静态检查、独立设计评估与受控诊断登记，具体验收状态以实施计划为准。运行就绪不等于产品通过，也不替代后续正式执行的当前环境预检。
 
@@ -152,6 +152,28 @@ Skill `/skill:ui-test-run` 调用 `ui_test_run`，首期单 chromium 项目、�
 
 产物在 `qa/ui/runs/<run-id>/`：`input.json`、原生配置、preflight、launch-intent、PID/令牌观察、process、原生 report、attempts、执行摘要和 output 中的截图/trace。run manifest 保存冻结计划、原始命令、退出码和证据引用；attempt 关联 run/case/instance、原生状态、断言步骤及附件摘要。原生报告包含未映射实例或全局错误时如实保留，不补造结果。
 
-执行摘要的 completed 仅表示执行与收集完成，exit_code=1 仍可能包含真实产品失败。身份失效和启动异常标记 blocked；取消、原生全局超时或结果不明保留中断及活跃登记，不自动换 ID 重放。查询不会自动清除阻断或重建浏览器；恢复核对留待 UI-11。统计、证据完整性及失败原因由 UI-08 对账和评估，未接入前仅交付原始结果及缺口。
+执行摘要的 completed 仅表示执行与收集完成，exit_code=1 仍可能包含真实产品失败。身份失效和启动异常标记 blocked；取消、原生全局超时或结果不明保留中断及活跃登记，不自动换 ID 重放。查询不会自动清除阻断或重建浏览器；恢复核对留待 UI-11。统计、证据完整性及失败原因由 UI-08 对账和评估。
 
 库调用与 Agent 工具测试见 `tests/ui-testing/run.test.mjs`，包括正常/失败、两次新批次隔离、重启去重、身份失效、实际进程启动失败、原生全局超时、取消后阻断及真实 Pi Skill/工具调用。测试页面用于机制验收，不能作为外部业务系统已通过的证明。
+
+## 统计、失败分析与结果评估（UI-08）
+
+按需加载 `/skill:ui-result-analysis`，调用 `ui_result_analysis`，参数统一为 `{request:{operation,...}}`：
+
+| operation | 输入 | 输出 |
+|---|---|---|
+| parse | run_ref、result_id | results_ref、对账明细、互斥状态、原生 attempts、证据缺口及分组统计 |
+| save-analysis | analysis 产物 | analysis_ref；每个非 passed 实例必须有事实、证据、结论等级和下一动作 |
+| draft-report | results_ref、analysis_ref、report_id | report_ref、完整性状态，以及缺陷/回归建议草稿 |
+
+`reconcileRun/collectResults` 只读取已有正式批次，不发模型请求、不启动浏览器。原生 passed 缺关键断言步骤不能成为业务通过；失败缺 trace 仍计失败并单列证据缺口；首败后成功计 flaky，attempt 不增加实例分母。稳定通过率为 passed/(passed+failed+flaky)，分母零时为不适用。模块下的同名功能分别汇总；候选及设计批准数仅针对本批次资产修订，未绑定的功能分母或评估记录标记不可用，不猜测为零。报告保存清理/残留、未探索范围和来源缺口。
+
+分析只接受本批次或其原始来源引用。程序检查文件归属和摘要，语义因果仍交给独立评估；不能从一个 UI 失败推断数据库死锁。产品分类生成待确认缺陷草稿，未提交外部平台；脚本问题要求新修订重审；环境/数据问题恢复后创建新批次；证据不足先补事实，绝不重写原生结果。
+
+加载 `/skill:ui-result-review`，调用 `ui_result_review` 的 review（report_ref、request_id）或 deliver（report_ref、可选 review_ref）。review 创建直接 Pi Agent 独立上下文，工具为空、无分析者历史，使用当前选择模型，思考关闭、单次限时 120 秒；按 R1–R6 保存引文、原始输入/响应及问题。评估提示词正文维护在 `skills/ui-result-review/references/rules.md`。图片/trace 不作为已看过的视觉内容提供模型，文件存在与归属由程序核验；不能声称已完成视觉判断。
+
+最多三轮，失败调用计预算，同请求不重放；无改善或预算耗尽保持阻塞。私有 `ui-review-authority/result-loops/` 保存调用历史，`result-accepted/` 保存可信批准。项目自填 approved、模型口头批准、篡改统计、错批次证据和静态完整性问题不能绕过门禁。完整交付绑定当前证据、规则和报告摘要，附评估记录链接；真实失败且根因 unknown 不阻止完整报告获批。证据不足时重新解析为新结果 ID，再生成 partial 报告，不带 review_ref 交付明确标记“完整性未通过”的阶段报告。旧批准不会随新产物自动转移。
+
+结果位于 `runs/<id>/results/<result-id>/`；分析保存至 `runs/<id>/analysis/<analysis-id>/`，报告正文、follow-up.json、评估轮次和交付 Markdown 位于 `runs/<id>/report/<report-id>/`。`verifyResults` 每次从原生事实重算，证据变化要求新结果修订；不可变产物避免覆盖历史。同 ID、同事实重复解析复用已有结果，不依赖聊天历史。
+
+验证见 `tests/ui-testing/results.test.mjs`、`result-review.test.mjs`。真实模型冒烟命令为 `PI_UI_RESULT_LIVE=1 node --test --test-name-pattern="UI-08 live" tests/ui-testing/result-review.test.mjs`，证据保存在 `evidence/ui-testing/ui-08/`。协议 fixture 仅验证调用/门禁；单次真实冒烟也不能代替 UI-10 重复校准或证明任意业务的归因质量。

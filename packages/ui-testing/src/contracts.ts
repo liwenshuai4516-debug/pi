@@ -19,6 +19,8 @@ const reviewer = object({ context_id: id, model_provider: Type.String(), model_i
 export const assessmentCheckSchema = object({ rule: Type.String({ pattern: '^D(?:10|[1-9])$' }),
   verdict: enumOf(['pass', 'fail', 'not-applicable']), reason: Type.String({ minLength: 1 }),
   evidence: Type.Array(object({ ref: fileRefSchema, quote: Type.String({ minLength: 1 }) }), { minItems: 1 }) });
+export const resultCheckSchema = object({ ...assessmentCheckSchema.properties,
+  rule: Type.String({ pattern: '^R[1-6]$' }) });
 const assessment = {
   subject_ref: fileRefSchema, subject_sha256: digest, round: Type.Integer({ minimum: 1, maximum: 3 }),
   decision: enumOf(['approved', 'revise', 'blocked']), rules_version: Type.String({ minLength: 1 }),
@@ -76,6 +78,8 @@ const bodies = {
     command: strings, process_token: id, pid: Type.Optional(Type.Integer({ minimum: 1 })),
     exit_code: Type.Optional(Type.Union([Type.Integer(), Type.Null()])), output_refs: refs }),
   results: object({ run_ref: fileRefSchema, raw_ref: fileRefSchema, planned_count: Type.Integer({ minimum: 0 }),
+    raw_kind: Type.Optional(enumOf(['native-report', 'execution-summary', 'run-manifest'])),
+    reconciliation_ref: Type.Optional(fileRefSchema),
     instances: Type.Array(object({ instance_id: id, status: enumOf([...finalStates]),
       evidence_state: enumOf(['complete', 'missing']), attempts: Type.Array(object({ attempt: Type.Integer({ minimum: 0 }),
         native_status: Type.String(), evidence_refs: refs, errors: strings })) })),
@@ -84,9 +88,9 @@ const bodies = {
     classification: enumOf(['product', 'script', 'data', 'environment', 'flaky', 'insufficient-evidence']),
     certainty: enumOf(['confirmed', 'supported', 'unknown']), facts: strings, hypotheses: strings,
     supporting_refs: refs, alternatives: strings, next_action: Type.String() })) }),
-  'result-review': object(assessment),
+  'result-review': object({ ...assessment, checks: Type.Optional(Type.Array(resultCheckSchema)) }),
   report: object({ run_ref: fileRefSchema, results_ref: fileRefSchema, analysis_ref: fileRefSchema,
-    content_ref: fileRefSchema, completeness: enumOf(['complete', 'partial']), limitations: strings }),
+    content_ref: fileRefSchema, follow_up_ref: Type.Optional(fileRefSchema), completeness: enumOf(['complete', 'partial']), limitations: strings }),
 };
 
 // schema 是交接契约，不定义浏览器 DSL；真实步骤仍由 Playwright Test 执行。
@@ -137,4 +141,12 @@ export const capabilities = [{ capability_id: 'ui-validate-artifact', capability
   side_effects: 'formal-browser-actions-and-native-runner', safe_to_repeat: false,
   requires: { pi: '1.2.0', schema: '1.0', playwright: '1.62.1' },
   errors: ['invalid-input', 'precondition', 'review-rejected', 'missing-capability', 'incompatible-version', 'runner-error', 'cancelled'],
+}, { capability_id: 'ui-result-analysis', capability_version: '0.1.0',
+  input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_result_analysis',
+  side_effects: 'read-evidence-and-write-analysis-artifacts', safe_to_repeat: true,
+  requires: { pi: '1.2.0', schema: '1.0', playwright: '1.62.1' }, errors: ['invalid-input', 'precondition', 'insufficient-evidence'],
+}, { capability_id: 'ui-result-review', capability_version: '0.1.0',
+  input_schema_version: '1.0', output_schema_version: '1.0', tool: 'ui_result_review',
+  side_effects: 'model-call-and-report-records', safe_to_repeat: false,
+  requires: { pi: '1.2.0', schema: '1.0' }, errors: ['invalid-input', 'precondition', 'review-rejected', 'insufficient-evidence', 'cancelled'],
 }];
