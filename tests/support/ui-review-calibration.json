@@ -1,6 +1,7 @@
 {
   "schema_version": "1.0",
-  "label_origin": "Machine-authored expectations grounded in the controlled fixture R1 and original Playwright reporter; not human annotations.",
+  "label_origin": "Machine-authored expectations grounded in the controlled fixture R1 and original Playwright reporter; all six expected labels confirmed by the human user on 2026-10-21.",
+  "human_review": {"date":"2026-10-21","source":"Current task: user answered 认可这 6 项标签 after the six expectations and original R1 were listed.","scope":"Expected labels only; does not claim a human line-by-line audit of every generated artifact."},
   "repetitions": 3,
   "samples": [
     {"id":"design-grounded","reviewer":"design","partition":"development","expected":"approved","reason":"R1 requires the exact original generated Name after Save and reload."},

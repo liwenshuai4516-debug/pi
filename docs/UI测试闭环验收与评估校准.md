@@ -6,7 +6,7 @@
 
 复用 Pi 1.2.0 的直接 `Agent`、`ModelRuntime`，既有 DesignReviewService/ResultReviewService、Playwright 1.62.1 及受控页面 fixture。只新增校准样本清单、显式外部模型测试和验收证据索引，不增加生产执行器、服务、依赖或界面。
 
-入口为 `tests/ui-testing/review-calibration.test.mjs`，样本清单为 `tests/support/ui-review-calibration.json`，命令及配置选择见[能力包说明](../packages/ui-testing/README.md#ui-10-独立重复校准)。普通回归默认跳过外部模型调用。
+校准入口为 `tests/ui-testing/review-calibration.test.mjs`，样本清单为 `tests/support/ui-review-calibration.json`；完整主链入口为 `tests/ui-testing/full-workflow-live.test.mjs`，历史 trace 查看为 `tests/ui-testing/trace-view.test.mjs`。命令及配置选择见[能力包说明](../packages/ui-testing/README.md#ui-10-独立重复校准)。普通回归默认跳过外部模型调用。
 
 ## 2. 样本与独立性
 
@@ -23,7 +23,7 @@
 
 每个样本 3 次显式独立任务；每次新建无工具 Agent、不继承生成者或前次评估的消息。设计评估使用独立 task，结果评估使用独立权限记录目录；不是更换 ID 绕过某次业务修订预算。样本和期望在模型调用前保存原始字节与摘要，本轮不据输出调整规则。保留样本已被执行后不得再宣称未见；若后续据其反馈调整规则，需要另外保留新样本。
 
-**当前标签是依据受控需求编写的机器标签，尚未完成人工复核。** 人工操作耗时基线也未提供；只记录实测调用时间，不宣称提效比例。fixture 初始化中的协议批准用于准备数据，不能计为本组真实模型评估或自主用例生成。
+**2026-10-21，用户在当前任务回复“认可这 6 项标签”，确认了上述需求及六项期望。** 标签清单登记 human_review 与确认范围；不声称用户逐字审核了每份脚本或报告。此前已冻结批次的原始机器标签清单保留，不追改历史字节。人工操作耗时基线尚未提供；只记录实测调用时间，不宣称提效比例。校准 fixture 初始化中的协议批准用于准备数据，不能计为本组真实模型评估或自主用例生成；完整主链入口则完全不预写这些批准或候选。
 
 ## 3. 已保留的真实模型尝试
 
@@ -36,6 +36,10 @@
 | `1792563388380` | deepseek / deepseek-flash | 用户授权换模后 3 次仍为 HTTP 402、quota-or-balance，停止并保留其余 15 次未尝试 | 更换模型未解除额度阻塞；当前未发现其他已配置 provider |
 
 发现初版诊断信息不足后，测试只增加无凭据的错误类别/状态码及连续错误停止策略，不修改 reviewer 规则或样本期望。用户授权后使用现有 `deepseek / deepseek-flash` 配置验证，仍被额度阻塞；未修改用户原始默认设置，未自动开通其他服务。继续真实模型验收需要恢复可用额度或提供已配置且获授权的可用模型。
+
+完整主链入口的首次真实运行在 `full-workflow/1792564110514/`。生产 Pi 包实际加载了八个 UI Skills，真实模型首次请求即返回 error、没有任何工具调用；未录制或执行。`post-run-error-diagnostic.json` 根据保留的会话 JSONL 派生出 HTTP 402、quota_or_balance=true，并保存原记录摘要，不复制原始供应商错误或凭据。此入口的后续成功路径尚未验证，不能作为真实模型闭环已通过的证据。
+
+该入口仅预置需求、环境、数据归属 seed 和隔离正反目标，不预写 inventory、cases、测试脚本或批准。四个阶段分别使用独立子进程：准备并诊断、正常执行与报告、完全退出后的复用、受控故障下的失败报告。验收核对实际工具调用、原生 recording、可信门禁、独立结果批准、新 run 和未变的获批资产；子任务限时且无自动重发。它验证进程重启，不能取代真实 Electron 退出/重启这一单独验收项。
 
 ## 4. M3 验收矩阵逐项核对
 
@@ -51,7 +55,7 @@
 | A06 对账和幻觉 | `results.test.mjs` 缺计划实例、外来截图、已通过但未到断言、平衡伪造数字；`result-review.test.mjs` 错批次截图和报告篡改拦截 | 无依据归因的独立重复真实模型校准 |
 | A07 半成品/索引 | `store.test.mjs` 附件已落盘但无 manifest 时不可加载；索引删除/损坏后重建完整资产 | 机制覆盖，不能声称恢复了未完成对象 |
 | A08 写后中断 | 新增 `run.test.mjs` 的 `UI-10 A08`：浏览器 Save 后读取 localStorage，独立标记证明保存已发生，再取消；新服务读原请求，无新浏览器请求，新 ID 重放被拒 | 完整业务核对/续跑按 UI-11 单独验收；当前仅安全阻断 |
-| A09 旧证据分析 | `workflow.test.mjs` analyze/view 保持浏览器请求数不变，错批次报告拒绝，缺 trace 交付明确 partial | 原生 trace 查看交互仍需专门核对；不能把“文件存在”当成已查看 |
+| A09 旧证据分析 | `workflow.test.mjs` analyze/view 保持浏览器请求数不变，错批次报告拒绝，缺 trace 交付明确 partial；`trace-view.test.mjs` 实际打开原生 Trace Viewer 并选中失败的 toHaveText 步骤，核对浏览器请求、trace 摘要及原 run | 机制和真实历史查看已验证；仅回放历史快照，不代表当前环境或新执行通过 |
 | A10 认证/缺工具/取消 | `environment.test.mjs` 失效 storageState 及清理残留；`run.test.mjs` 身份预检阻断/取消，`workflow.test.mjs` 能力缺失/版本冲突保存 blocked | 机制覆盖；真实环境只证明当前受控身份样例 |
 | A11 单一输入来源 | `recording.test.mjs` 源码发现/草稿无浏览器动作，禁止源码冒充 explored；browser 观察及未探索范围单独保存 | 真实模型对未见角色/模块的结论不外推仍须主链检查 |
 | A12 循环不收敛 | `design.test.mjs`/`result-review.test.mjs` 最多 3 次、无改善提前阻断、坏引用耗预算、未批准不可交付完整报告 | 机制覆盖；不能用预算耗尽代替批准 |
@@ -62,5 +66,7 @@
 - `npm test`：96 项通过、4 项显式外部模型测试默认跳过；包含本次新增校准入口。此轮启动于 A08 新测试加入之前，不包含该专项。
 - `node --test --test-name-pattern='UI-10 A08' tests/ui-testing/run.test.mjs`：新增真实保存后取消专项 1 项通过，实测约 8.6 秒。
 - `node --test tests/ui-testing/review-calibration.test.mjs`：配置切换及凭据隔离专项 1 项通过，外部模型专项默认跳过；覆盖默认模型已被移除时的明确拒绝，以及选择另一现有模型时原配置不变、其他 provider 的凭据不复制。
+- 本轮再次运行 `npm run check` 和 `npm test`：类型检查及构建通过，完整回归 99 项通过、5 项外部模型测试默认跳过，已包含新增 A08、配置隔离及原生 trace 查看。
+- 原生 trace 专项首次约 11.7 秒通过，完整回归中约 29 秒通过；证据在 `trace-view/1792563747398/`、`trace-view/1792564135321/`，含原始 qa/ui、viewer 截图及结果。已实际查看首次截图，确认选中的失败断言、空列表历史快照及原生参数详情；业务请求数未增加，原始 trace 摘要未变。
 
-真实模型重复校准、人工样本复核、实际完整主链、trace 查看核对、完整效率基线仍需继续；不得将本记录视为 UI-10 完成或 M3 通过。
+真实模型重复校准、实际完整主链及其桌面重启复用、完整效率基线仍需继续；不得将本记录视为 UI-10 完成或 M3 通过。

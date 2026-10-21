@@ -42,8 +42,8 @@ test('UI-10 live: independent repeated design/result calibration preserves all e
   const runtime=await ModelRuntime.create({authPath:join(f.fixture.agentDir,'auth.json'),modelsPath:join(f.fixture.agentDir,'models.json')});
   const model=(await runtime.getAvailable()).find(m=>m.provider===selected.provider&&m.id===selected.modelId);assert.ok(model);
   const summary={schema_version:'1.0',model:selected,manifest_sha256:sha256(manifestBytes),
-    label_origin:manifest.label_origin,started_at:new Date().toISOString(),outcomes:[],
-    limitations:['Human annotation and human timing baseline are not available.',
+    label_origin:manifest.label_origin,human_review:manifest.human_review,started_at:new Date().toISOString(),outcomes:[],
+    limitations:['The human confirmed the six expected labels; no human timing baseline or line-by-line artifact audit is claimed.',
       'Fixture assets were authored by test support; this is reviewer calibration, not autonomous case generation or full M3 acceptance.']};
   let current,consecutiveProviderErrors=0;
   const call=async input=>{
