@@ -224,3 +224,10 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 
 
 结果分析工具的 `read-trace` 操作接收 `results_ref`、`trace_ref`，只读同批次已登记实例/attempt 的原始 `trace.zip`。复用 Playwright 1.62.1 已导出的 `playwright-core/lib/utilsBundle` 中 yauzl（无新增依赖），提取所有 *.trace 的 before/after/log/event/console 记录，保留归档摘要、成员名、行号和归属；不提取快照、网络或资源正文，不将客户端事件当作服务端根因。归档限 32 MiB、事件文件限 4 MiB、返回限 512 KiB，超预算拒绝而非静默截断。独立结果评估对 supporting_refs 引用的原始 trace 重算同一内容，不能接受模型自行写出的摘录。仍可交付缺证据的 partial 阶段报告，不能冒称完整批准。
+
+
+### UI-11 恢复与重跑
+
+工作流 `resume-task` 核对当前任务已保存产物及能力，继续原阶段，保留预算/完成清单，不复活终态。`ui_test_run/plan-recovery` 只读 parent_run_ref；工作流 mode=resume/rerun-failed/rerun-all 接收 run_ref，正式执行 start 传同一 parent_run_ref。resume 仅继续已证实未启动项（包含身份预检失败、business_started=false 的整 case）；失败重跑只选 failed/flaky；全量重跑重新选择同一获批资产全部 case，即使父 run 仅为子集。新 run 保存父 ID 和 selection.json，原生 Playwright grep 筛选完整测试，在新 context 重建数据。标题不唯一则拒绝筛选，选择为空不启动。
+
+中断/活跃父批次或未知副作用仍阻塞；只靠 PID 退出、文件缺失或模型判断不清除阻断。当前没有通用方式查询任意业务服务端写入，无法核对时返回明确需要核对；不宣称已自动恢复未知写操作。录制 partial 仅可查日志/归属，不按点击序号恢复；完成阶段继续用原产物。失败集合结果与原全量计划分开，历史失败和不同部署不合并成全绿。验证入口 `tests/ui-testing/recovery.test.mjs`。

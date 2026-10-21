@@ -4,6 +4,8 @@ import { Type } from 'typebox';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { UiRunService, runRequestSchema } from './runner.js';
 import { workspacePath, WorkflowError } from './validation.js';
+import { recoveryPlan } from './recovery.js';
+import { fileRefSchema } from './contracts.js';
 
 export function registerRunTools(pi: ExtensionAPI) {
   const id = Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' });
@@ -13,10 +15,15 @@ export function registerRunTools(pi: ExtensionAPI) {
     parameters: Type.Object({ request: Type.Union([
       Type.Object({ operation: Type.Literal('start'), input: runRequestSchema }),
       Type.Object({ operation: Type.Literal('status'), task_id: id, request_id: id }),
+      Type.Object({ operation: Type.Literal('plan-recovery'), parent_run_ref: fileRefSchema, intent: Type.Enum(['resume', 'rerun-failed', 'rerun-all']) }),
     ]) }),
     async execute(_id, { request }, signal, _update, ctx) {
       try {
         const service = new UiRunService(ctx.cwd, join(ctx.sessionManager.getSessionDir(), 'ui-review-authority'));
+        if (request.operation === 'plan-recovery') {
+          const output = await recoveryPlan(ctx.cwd, request.parent_run_ref, request.intent);
+          return { content: [{ type: 'text' as const, text: JSON.stringify(output) }], details: output };
+        }
         const output = request.operation === 'status' ? await service.status(request.task_id, request.request_id)
           : await service.start(request.input, signal);
         const summaryRef = output.run.data.output_refs.find(r => r.path.endsWith('/execution-summary.json'));

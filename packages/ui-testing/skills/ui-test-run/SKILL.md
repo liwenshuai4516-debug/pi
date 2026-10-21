@@ -10,3 +10,8 @@ description: 使用获批 UI 资产启动正式 Playwright 测试批次，保存
 一次新执行使用新的 request_id；查询或确认同一次启动使用原 ID。工具先登记冻结计划和启动意图，再启动原生 CLI；相同输入的同请求只读原批次，不重放浏览器。用 `{request:{operation:"status",task_id,request_id}}` 查询旧状态。取消、中断、未知或只有 pending 的旧批次先核对进程和业务数据，不换 ID 绕过阻断；完整恢复由后续能力提供。
 
 读取返回的 run_ref、执行摘要、原生 report、attempt、截图/trace 和数据生命周期证据。`completed` 表示执行及证据收集完成；exit_code=1 可以是产品断言失败，不能报告为全部通过。报告缺失、实例遗漏、未知副作用或清理残留如实保留，统计与失败归因交给结果分析阶段；没有该能力时仅交付原始结果和未完成项。脚本修复必须新建资产修订并重新评估，不能在失败批次中改脚本或预期值使其变绿。
+
+
+续跑/重跑先调用 `ui_test_run` 的 `plan-recovery`，传 parent_run_ref 及 intent（resume/rerun-failed/rerun-all），只读父批次，不启动浏览器。resume 只选择已确认未启动的实例；rerun-failed 只选 failed/flaky；rerun-all 选择当前同一获批资产完整集合。任何 blockers 或空集合均停止，不换任务 ID 绕过未知业务写入。父批次中断/活跃或证据不完整时保留需要核对，不能只靠 PID 消失清除阻断。
+
+随后用工作流相同 mode 和 run_ref=父批次创建任务，start 执行请求同时传 parent_run_ref。工具冻结 selection.json、parent_run_id 和新 run，原生 Playwright grep 选择完整 case/业务链，从声明初态新建 context/数据，不从点击中途恢复。保持同一资产修订；修脚本先回设计，跨部署版本单独报告。只重跑失败项通过不能替代父批次原失败或原全量覆盖。

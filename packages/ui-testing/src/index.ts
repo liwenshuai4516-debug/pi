@@ -13,3 +13,4 @@ export * from './analysis.js';
 export * from './result-review.js';
 export * from './workflow.js';
 export * from './trace-evidence.js';
+export * from './recovery.js';

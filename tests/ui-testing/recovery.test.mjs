@@ -1,0 +1,80 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { recoveryPlan, UiRunService, RuntimeAdmissionService, assetDigest, reconcileRun, sha256, UiWorkflowService } from '../../packages/ui-testing/dist/index.js';
+import { ready } from '../support/ui-run-fixture.mjs';
+import { validCode, response } from '../support/ui-design-fixture.mjs';
+import { artifact } from '../support/ui-artifacts.mjs';
+
+test('UI-11: failure subset, full rerun, original evidence and parent selection are distinct', {timeout:90000}, async t => {
+  const d=await ready(t),{f}=d;
+  const second=validCode.slice(validCode.indexOf("test('C1")).replace("C1 Name persists","C2 Name persists").replace('A1 Name','A2 Name').replace("await test.step", "if(process.env.PI_UI_C2_FAIL)await page.getByRole('listitem').evaluate(e=>e.textContent='wrong');await test.step");
+  const made=await f.make('two',validCode+'\n'+second,c=>{const next=structuredClone(c.data.cases[0]);next.case_id='C2';next.assertions[0].assertion_id='A2';next.steps[0].assertion_ids=['A2'];c.data.cases.push(next);});
+  made.asset.data.bindings.push({...made.asset.data.bindings[0],case_id:'C2',test_title:'C2 Name persists',assertion_ids:['A2']});
+  const spec=structuredClone(d.spec);spec.probes[0].assertion_ids.push('A2');
+  const specRef=await f.store.putFile('qa/ui/scopes/scope-1/two-case-diagnostic.json',JSON.stringify(spec));
+  made.asset.data.files.push(...d.asset.data.files.filter(r=>!r.path.endsWith('.spec.ts')&&!made.asset.data.files.some(x=>x.path===r.path)));
+  made.asset.data.files.push(specRef);
+  made.asset.id='two-case-asset';made.asset.data.content_sha256=assetDigest(made.asset);const assetRef=await f.store.put(made.asset);
+  const review=await f.service.assess(f.taskRef,assetRef,'two-case-review',response);
+  assert.equal((await new RuntimeAdmissionService(f.root,f.authority).diagnose(assetRef,review.review_ref,specRef,'two-case-ready')).runtime_ready,true);
+  const makeTask=async(id,intent,source)=>f.store.put(artifact('task',{intent,scope_ref:made.asset.data.scope_ref,state:'running',stage:'execute',completed_stages:[],input_sha256:sha256(id),asset_refs:[assetRef],run_ids:[],output_refs:[],blockers:[]},id));
+  await makeTask('two-parent','execute');
+  const service=new UiRunService(f.root,f.authority),request={...d.request,task_id:'two-parent',asset_ref:assetRef,review_ref:review.review_ref};
+  const previous=process.env.PI_UI_C2_FAIL;process.env.PI_UI_C2_FAIL='1';
+  t.after(()=>{if(previous===undefined)delete process.env.PI_UI_C2_FAIL;else process.env.PI_UI_C2_FAIL=previous;});
+  const parent=await service.start(request);delete process.env.PI_UI_C2_FAIL;
+  const raw=await readFile(join(f.root,parent.run_ref.path));
+  assert.deepEqual((await reconcileRun(f.root,parent.run_ref)).data.counts.failed,1);
+  const plan=await recoveryPlan(f.root,parent.run_ref,'rerun-failed');
+  assert.deepEqual(plan.blockers,[]);assert.deepEqual(plan.selected.map(p=>p.case_id),['C2']);
+  assert.ok((await recoveryPlan(f.root,parent.run_ref,'resume')).blockers.some(b=>b.includes('为空')));
+  const workflow=new UiWorkflowService(f.root,f.authority,{tools:['read','ui_test_run','ui_result_analysis','ui_result_review'],skills:['ui-test-run','ui-result-analysis','ui-result-review']});
+  const subsetTask=await workflow.start({task_id:'only-failed',mode:'rerun-failed',run_ref:parent.run_ref});
+  assert.deepEqual(subsetTask.blockers,[]);
+  const subset=await service.start({...request,task_id:'only-failed',parent_run_ref:parent.run_ref});
+  assert.deepEqual(subset.run.data.plan.map(p=>p.case_id),['C2']);assert.equal(subset.run.data.parent_run_id,parent.run.id);
+  const current=await workflow.find('only-failed');
+  assert.equal((await workflow.checkpoint(current.task_ref,'execute',[subset.run_ref])).next_stage,'analyze');
+  const result=await reconcileRun(f.root,subset.run_ref);assert.equal(result.data.counts.passed,1);assert.equal(result.data.planned_count,1);
+  assert.ok(result.details.limitations.some(s=>s.includes('不能用子集通过替换原失败')));
+  assert.equal((await recoveryPlan(f.root,subset.run_ref,'rerun-all')).selected.length,2);
+  await makeTask('all-again','rerun-all');
+  const all=await service.start({...request,task_id:'all-again',parent_run_ref:subset.run_ref});
+  assert.equal(all.run.data.plan.length,2);assert.equal((await reconcileRun(f.root,all.run_ref)).data.counts.passed,2);
+  assert.deepEqual(await readFile(join(f.root,parent.run_ref.path)),raw);
+  const calls=f.fixture.state.browserRequests;
+  assert.equal((await service.start({...request,task_id:'only-failed',parent_run_ref:parent.run_ref})).replayed,true);
+  assert.equal(f.fixture.state.browserRequests,calls);
+});
+
+test('UI-11: preflight-only resume rebuilds a case; unknown write remains blocked', {timeout:60000},async t=>{
+  const {f,service,request}=await ready(t);
+  const environment=JSON.parse(await readFile(join(f.root,request.environment_ref.path),'utf8'));
+  const bad=await f.store.putFile('qa/ui/scopes/scope-1/invalid-role.json',JSON.stringify({...environment,identity:{selector:'h1',text:'No such role'}}));
+  const parent=await service.start({...request,environment_ref:bad});
+  assert.equal((await recoveryPlan(f.root,parent.run_ref,'resume')).selected.length,1);
+  const task=await f.store.load(f.taskRef);
+  await f.store.put(artifact('task',{...task.data,intent:'resume',asset_refs:[request.asset_ref],run_ids:[],output_refs:[]},'resume-before-write'));
+  const resumed=await service.start({...request,task_id:'resume-before-write',parent_run_ref:parent.run_ref});
+  assert.equal(resumed.run.data.exit_code,0);
+  const active=artifact('run',{...parent.run.data,request_id:'unknown-write',state:'pending',output_refs:[],plan:parent.run.data.plan},'unknown-write');
+  // 未知写入保留原生启动登记；选择器绝不因缺少结果推断为未启动。
+  const reserved=await f.store.reserveRun(active);
+  const unknown=await f.store.finishRun(reserved.ref,null,[],true);
+  const before=f.fixture.state.browserRequests;
+  assert.ok((await recoveryPlan(f.root,unknown,'resume')).blockers.length);
+  assert.equal(f.fixture.state.browserRequests,before);
+});
+
+test('UI-11: interrupted workflow resumes its current phase without clearing completion',async t=>{
+  const {f,request}=await ready(t),runtime={tools:['read','ui_result_analysis','ui_result_review'],skills:['ui-result-analysis','ui-result-review']};
+  const run=await new UiRunService(f.root,f.authority).start(request);
+  const workflow=new UiWorkflowService(f.root,f.authority,runtime);
+  const task=await workflow.start({task_id:'resume-analysis',mode:'analyze',run_ref:run.run_ref});
+  const blocked=await workflow.block(task.task_ref,['暂时中断']);
+  const resumed=await workflow.resumeTask(blocked.task_ref);
+  assert.equal(resumed.task.data.state,'running');assert.equal(resumed.next_stage,'analyze');
+  assert.deepEqual(resumed.task.data.completed_stages,[]);assert.deepEqual(resumed.task.data.workflow.source_run_ref,run.run_ref);
+});

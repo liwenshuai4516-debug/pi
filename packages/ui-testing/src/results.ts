@@ -226,6 +226,7 @@ export async function reconcileRun(root: string, runRef: FileRef) {
       blocked_count: designReview ? designReview.data.decision === 'blocked' ? cases.data.cases.length : 0 : null,
       review_ref: request?.review_ref ?? null, decision: designReview?.data.decision ?? 'unavailable' },
     limitations: ['范围仅限冻结计划，不代表全产品或代码覆盖率；attempt 与 case 分开统计',
+      ...(run.data.parent_run_id ? [`本批次是父批次 ${run.data.parent_run_id} 的续跑/重跑；只报告本次选择集合，不能用子集通过替换原失败或宣称原全量通过；不同部署版本不合并。`] : []),
       '候选与设计评估数量仅统计本批次资产修订；不推断其他候选或历史轮次。未登记的信息为不可用，不填零',
       ...(inventory ? inventory.data.unexplored.map(gap => `未探索：${gap}`) : ['未绑定可核验功能清单，已选功能点分母不可用']),
       ...cases.data.gaps, ...asset.data.gaps],

@@ -26,6 +26,7 @@ const same = (a: FileRef, b: FileRef) => a.path === b.path && a.sha256 === b.sha
 const paths: Record<Mode, Stage[]> = {
   new: ['discover-record', 'case-design', 'design-review'], record: ['discover-record', 'case-design', 'design-review'],
   execute: ['execute', 'analyze', 'result-review'], analyze: ['analyze', 'result-review'], view: ['analyze'],
+  resume: ['execute', 'analyze', 'result-review'], 'rerun-failed': ['execute', 'analyze', 'result-review'], 'rerun-all': ['execute', 'analyze', 'result-review'],
 };
 const skills: Record<Stage, string> = { 'discover-record': 'ui-discover-record', 'case-design': 'ui-case-design',
   'design-review': 'ui-design-review', execute: 'ui-test-run', analyze: 'ui-result-analysis', 'result-review': 'ui-result-review' };
@@ -124,7 +125,8 @@ export class UiWorkflowService {
   async start(input: Start) {
     if (!validateStart(input)) throw new WorkflowError('invalid-input', '工作流输入不符合契约');
     const mode = input.mode;
-    if ((mode === 'execute') !== !!input.asset_ref || (['analyze', 'view'].includes(mode)) !== !!input.run_ref ||
+    const recovery = ['resume', 'rerun-failed', 'rerun-all'].includes(mode);
+    if ((mode === 'execute') !== !!input.asset_ref || (['analyze', 'view'].includes(mode) || recovery) !== !!input.run_ref ||
         (input.discovery && !['new', 'record'].includes(mode))) throw new WorkflowError('invalid-input', '执行须指定资产，分析/查看须指定旧 run；发现方式仅用于新建/录制');
     let scopeRef = input.scope_ref;
     if (input.asset_ref) {
@@ -133,10 +135,12 @@ export class UiWorkflowService {
       if (scopeRef && !same(scopeRef, asset.data.scope_ref)) throw new WorkflowError('precondition', '任务范围与资产不一致');
       scopeRef = asset.data.scope_ref;
     }
+    let selectedAsset = input.asset_ref;
     if (input.run_ref) {
       const run = await this.store.load(input.run_ref, false) as Artifact<'run'>;
       if (run.kind !== 'run') throw new WorkflowError('invalid-input', '分析/查看需要正式 run');
       const asset = await this.store.load(run.data.asset_ref, false) as Artifact<'asset'>;
+      if (recovery) selectedAsset = run.data.asset_ref;
       if (scopeRef && !same(scopeRef, asset.data.scope_ref)) throw new WorkflowError('precondition', '任务范围与旧批次不一致');
       scopeRef = asset.data.scope_ref;
     }
@@ -157,7 +161,7 @@ export class UiWorkflowService {
         ...(input.run_ref ? { source_run_ref: input.run_ref } : {}),
         ...(normalized.discovery ? { discovery: normalized.discovery as 'source' | 'browser' | 'both' } : {}) },
       scope_ref: scopeRef, state: 'running', stage: paths[mode][0], completed_stages: [], input_sha256: inputHash,
-      asset_refs: input.asset_ref ? [input.asset_ref] : [], run_ids: [], output_refs: [], blockers: [] } };
+      asset_refs: selectedAsset ? [selectedAsset] : [], run_ids: [], output_refs: [], blockers: [] } };
     const requirements = await this.requirements(task);
     task.data.blockers = requirements.blockers.map(b => b.message);
     if (task.data.blockers.length) task.data.state = 'blocked';
@@ -227,7 +231,7 @@ export class UiWorkflowService {
       if (!run || run.data.task_id !== task.id || run.data.state !== 'finished' || !task.data.run_ids.includes(run.id)) throw new WorkflowError('precondition', '须交接本任务已结束的正式 run；中断/未知批次先核对');
     } else if (stage === 'analyze') {
       const report = pick('report');
-      const runRef = task.data.workflow!.source_run_ref ?? all.find(a => a.artifact.kind === 'run')?.ref;
+      const runRef = task.data.workflow!.mode === 'analyze' ? task.data.workflow!.source_run_ref : all.find(a => a.artifact.kind === 'run')?.ref;
       if (!report || !runRef || !same(report.data.run_ref, runRef)) throw new WorkflowError('precondition', '报告须来自本任务选定的旧批次或实际执行批次');
       const checked = await checkReport(this.root, outputRefs[artifacts.indexOf(report)]);
       if (checked.check.issues.some(i => i.rule === 'R5')) throw new WorkflowError('precondition', '报告正文或统计不一致');
@@ -235,7 +239,7 @@ export class UiWorkflowService {
       const review = pick('result-review');
       const report = [...all].reverse().find(a => a.artifact.kind === 'report' && (!review || same(a.ref, review.data.subject_ref)));
       if (!report) throw new WorkflowError('precondition', '结果评估须绑定已交接报告');
-      const selectedRun = task.data.workflow!.source_run_ref ?? all.find(a => a.artifact.kind === 'run' &&
+      const selectedRun = task.data.workflow!.mode === 'analyze' ? task.data.workflow!.source_run_ref : all.find(a => a.artifact.kind === 'run' &&
         (a.artifact as Artifact<'run'>).data.task_id === task.id)?.ref;
       if (!selectedRun || !same((report.artifact as Artifact<'report'>).data.run_ref, selectedRun)) throw new WorkflowError('precondition', '最终报告须来自任务选定批次，不能以另一批次替换');
       const delivered = await new ResultReviewService(this.root, this.authorityRoot).deliver(report.ref, review ? outputRefs[artifacts.indexOf(review)] : undefined);
@@ -251,6 +255,15 @@ export class UiWorkflowService {
     const task = await this.store.load(taskRef, false) as Artifact<'task'>;
     if (task.kind !== 'task' || !task.data.workflow) throw new WorkflowError('invalid-input', '需要工作流任务');
     const ref = await this.store.updateTask(taskRef, { ...task, data: { ...task.data, state: 'blocked', blockers: reasons } });
+    return this.status(ref);
+  }
+  async resumeTask(taskRef: FileRef) {
+    const { task, blockers } = await this.status(taskRef);
+    if (['completed', 'cancelled'].includes(task.data.state)) throw new WorkflowError('precondition', '终态任务不续跑；查询结果或新建明确意图任务');
+    await verifyReferences(this.root, task.data.output_refs);
+    if (blockers.length) return this.block(taskRef, blockers.map(b => b.message));
+    // 原阶段/产物与预算全部保留；半段录制和未知写入不从临时浏览器句柄恢复。
+    const ref = await this.store.updateTask(taskRef, { ...task, data: { ...task.data, state: 'running', blockers: [] } });
     return this.status(ref);
   }
 }

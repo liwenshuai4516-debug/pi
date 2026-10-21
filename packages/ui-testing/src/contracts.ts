@@ -39,7 +39,7 @@ const testcase = object({ case_id: id, module_id: id, feature_id: id, scenario_i
 const instance = object({ instance_id: id, case_id: id, revision: id, data_row_id: id, browser_project: id });
 export const finalStates = ['passed', 'failed', 'blocked', 'skipped', 'cancelled', 'not-run', 'flaky', 'unknown'] as const;
 export const stages = ['discover-record', 'case-design', 'design-review', 'execute', 'analyze', 'result-review'] as const;
-export const workflowModes = ['new', 'record', 'execute', 'analyze', 'view'] as const;
+export const workflowModes = ['new', 'record', 'execute', 'analyze', 'view', 'resume', 'rerun-failed', 'rerun-all'] as const;
 const bodies = {
   scope: object({ project_id: id, environment_id: id, role: Type.String({ minLength: 1 }), goal: Type.String({ minLength: 1 }),
     base_url: Type.Optional(Type.String()), allowed_actions: strings, sources: Type.Array(source),

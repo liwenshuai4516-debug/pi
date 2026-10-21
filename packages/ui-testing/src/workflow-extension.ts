@@ -14,6 +14,7 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
       Type.Object({ operation: Type.Literal('status'), task_id: Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' }) }),
       Type.Object({ operation: Type.Literal('checkpoint'), task_ref: fileRefSchema, stage: Type.Enum([...stages]), output_refs: Type.Array(fileRefSchema, { minItems: 1 }) }),
       Type.Object({ operation: Type.Literal('block'), task_ref: fileRefSchema, reasons: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }) }),
+      Type.Object({ operation: Type.Literal('resume-task'), task_ref: fileRefSchema }),
     ]) }),
     async execute(_id, { request }, signal, _update, ctx) {
       try {
@@ -28,6 +29,7 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
           : request.operation === 'start' ? await service.start(request.input)
           : request.operation === 'status' ? await service.find(request.task_id)
           : request.operation === 'checkpoint' ? await service.checkpoint(request.task_ref, request.stage, request.output_refs)
+          : request.operation === 'resume-task' ? await service.resumeTask(request.task_ref)
           : await service.block(request.task_ref, request.reasons);
         const blockers = 'blockers' in output ? output.blockers : [];
         const savedBlockers = 'task' in output ? output.task.data.blockers : [];

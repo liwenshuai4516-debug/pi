@@ -12,11 +12,13 @@ import { DesignReviewService } from './review.js';
 import { preflightEnvironment } from './diagnostics.js';
 import { validateEnvironment } from './environment.js';
 import { sha256, verifyReferences, workspacePath, WorkflowError } from './validation.js';
+import { recoveryPlan } from './recovery.js';
 
 const id = Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' });
 export const runRequestSchema = Type.Object({ task_id: id, request_id: id,
   asset_ref: fileRefSchema, review_ref: fileRefSchema, environment_ref: fileRefSchema, config_ref: fileRefSchema,
   timeout_ms: Type.Integer({ minimum: 1000, maximum: 600000 }),
+  parent_run_ref: Type.Optional(fileRefSchema),
 }, { additionalProperties: false });
 export type RunRequest = Static<typeof runRequestSchema>;
 const validate = new Ajv({ strict: true, allErrors: true }).compile(runRequestSchema);
@@ -26,7 +28,7 @@ const same = (a: FileRef, b: FileRef) => a.path === b.path && a.sha256 === b.sha
 const identity = (task: string, request: string) => `run-${sha256(json([task, request])).slice(0, 32)}`;
 const inputKey = (input: RunRequest) => json([input.task_id, input.request_id, input.asset_ref.path, input.asset_ref.sha256,
   input.review_ref.path, input.review_ref.sha256, input.environment_ref.path, input.environment_ref.sha256,
-  input.config_ref.path, input.config_ref.sha256, input.timeout_ms]);
+  input.config_ref.path, input.config_ref.sha256, input.timeout_ms, input.parent_run_ref ?? null]);
 type NativeStep = { title: string; steps?: NativeStep[]; [key: string]: unknown };
 type NativeAttempt = { retry: number; status: string; steps?: NativeStep[]; errors?: unknown[];
   attachments?: { path?: string; [key: string]: unknown }[] };
@@ -67,11 +69,27 @@ export class UiRunService {
       const taskEntry = catalog.records.find(r => r.kind === 'task' && r.id === input.task_id);
       if (!taskEntry) throw new WorkflowError('precondition', '缺少已登记任务');
       const task = await this.store.load(taskEntry.ref) as Artifact<'task'>;
-      if (!['execute', 'rerun-all'].includes(task.data.intent) || !same(task.data.scope_ref, asset.data.scope_ref)) {
+      if (!['execute', 'resume', 'rerun-failed', 'rerun-all'].includes(task.data.intent) || !same(task.data.scope_ref, asset.data.scope_ref)) {
         throw new WorkflowError('precondition', '正式执行需要同范围的执行任务');
       }
       const scope = await this.store.load(asset.data.scope_ref) as Artifact<'scope'>;
       const cases = await this.store.load(asset.data.cases_ref) as Artifact<'cases'>;
+      const intent = task.data.intent;
+      if ((intent !== 'execute') !== !!input.parent_run_ref) throw new WorkflowError('precondition', '续跑/重跑须绑定父批次；普通执行不能伪装子集');
+      const recovery = input.parent_run_ref ? await recoveryPlan(root, input.parent_run_ref, intent as 'resume' | 'rerun-failed' | 'rerun-all') : undefined;
+      if (recovery?.blockers.length) throw new WorkflowError('precondition', recovery.blockers.join('；'));
+      if (recovery) {
+        const parent = await this.store.load(input.parent_run_ref!, false) as Artifact<'run'>;
+        if (!same(parent.data.asset_ref, input.asset_ref) || (task.data.workflow?.source_run_ref && !same(task.data.workflow.source_run_ref, input.parent_run_ref!))) {
+          throw new WorkflowError('precondition', '恢复须沿用父批次同一资产修订及任务父引用；修改脚本须重新设计并新建执行');
+        }
+      }
+      const selectedCases = recovery ? cases.data.cases.filter(c => recovery.selected.some(p => p.case_id === c.case_id && p.data_row_id === c.data_row_id && p.browser_project === c.browser_project)) : cases.data.cases;
+      const selectedBindings = asset.data.bindings!.filter(b => selectedCases.some(c => c.case_id === b.case_id));
+      // 使用原生 grep 选择完整 test；标题后缀必须唯一，不能误带未选测试。
+      if (recovery && selectedBindings.some(b => asset.data.bindings!.some(other => other.case_id !== b.case_id &&
+        (other.test_title.endsWith(' ' + b.test_title) || other.test_title === b.test_title)))) throw new WorkflowError('precondition', '恢复测试标题不唯一，不能可靠筛选');
+      const selectionRef = recovery ? await this.store.putFile(`${base}/selection.json`, json(recovery)) : undefined;
       await verifyReferences(root, [input.environment_ref, input.config_ref]);
       if (!asset.data.files.some(r => same(r, input.config_ref))) throw new WorkflowError('precondition', '执行配置必须属于获批修订');
       const environment = validateEnvironment(JSON.parse(await readFile(await workspacePath(root, input.environment_ref.path), 'utf8')));
@@ -91,12 +109,12 @@ export class UiRunService {
       const configRef = await this.store.putFile(`${base}/playwright.config.mjs`,
         `import base from ${JSON.stringify(pathToFileURL(await workspacePath(root, input.config_ref.path)).href)};\n` +
         `export default {...base,...${JSON.stringify({ testDir: root,
-          testMatch: [...new Set(asset.data.bindings!.map(b => join(root, b.script_ref.path)))],
+          testMatch: [...new Set(selectedBindings.map(b => join(root, b.script_ref.path)))],
           retries: 0, repeatEach: 1, workers: 1, fullyParallel: false, forbidOnly: true, globalTimeout: input.timeout_ms,
           outputDir, reporter: [['json', { outputFile: reportPath }]],
           ...(asset.data.compiler_config_ref ? { tsconfig: await workspacePath(root, asset.data.compiler_config_ref.path) } : {}),
           projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
-        })},grep:undefined,grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(environment.base_url)},` +
+        })},grep:${recovery ? `new RegExp(${JSON.stringify('(?:^| )(?:' + selectedBindings.map(b => b.test_title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')$')})` : 'undefined'},grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(environment.base_url)},` +
         `uiEnvironment:${JSON.stringify(environment)},uiProjectRoot:${JSON.stringify(root)},` +
         `uiOwner:${JSON.stringify({ task_id: input.task_id, kind: 'run', id: runId })},` +
         `storageState:${environment.auth.kind === 'none' ? 'undefined' : `process.env[${JSON.stringify(environment.auth.reference)}]`},` +
@@ -105,17 +123,18 @@ export class UiRunService {
       const processToken = sha256(inputKey(input));
       const run: Artifact<'run'> = { schema_version: '1.0', kind: 'run', id: runId, created_at: new Date().toISOString(), data: {
         task_id: input.task_id, request_id: input.request_id, asset_ref: input.asset_ref,
+        ...(recovery ? { parent_run_id: recovery.parent_run_id } : {}),
         environment_id: environment.environment_id, deployment_version: environment.deployment_version, role: environment.role,
-        plan: cases.data.cases.map(c => ({ instance_id: `instance-${sha256(json([c.case_id, c.data_row_id, c.browser_project])).slice(0, 32)}`,
+        plan: selectedCases.map(c => ({ instance_id: `instance-${sha256(json([c.case_id, c.data_row_id, c.browser_project])).slice(0, 32)}`,
           case_id: c.case_id, revision: asset.data.revision, data_row_id: c.data_row_id, browser_project: c.browser_project })),
-        state: 'pending', command: [process.execPath, ...args], process_token: processToken, output_refs: [inputRef, configRef],
+        state: 'pending', command: [process.execPath, ...args], process_token: processToken, output_refs: [inputRef, configRef, ...(selectionRef ? [selectionRef] : [])],
       } };
       const reservation = await this.store.reserveRun(run); runRef = reservation.ref;
       if (!reservation.created) return await this.status(input.task_id, input.request_id);
       const preflight = await preflightEnvironment(root, environment, Math.min(input.timeout_ms, 30000), signal);
       const preflightRef = await this.store.putFile(`${base}/preflight.json`, json(preflight));
       let status = preflight.status === 'completed' ? 'completed' : 'blocked';
-      const evidence: FileRef[] = [inputRef, configRef, preflightRef];
+      const evidence: FileRef[] = [inputRef, configRef, preflightRef, ...(selectionRef ? [selectionRef] : [])];
       const collectionProblems: string[] = [];
       if (preflight.status === 'completed' && !signal?.aborted) {
         await new DesignReviewService(root, this.authorityRoot).gate(input.asset_ref, input.review_ref);

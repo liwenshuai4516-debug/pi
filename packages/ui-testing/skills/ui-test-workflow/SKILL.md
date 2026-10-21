@@ -24,3 +24,8 @@ discover-record 交接完整 recording；source 模式交接含 draft_refs 的 i
 需要修订时留在当前阶段，按设计/结果评估 Skill 的有限循环处理；最多三轮、无改善或证据不足按既有门禁阻塞。用 block（task_ref、reasons）登记具体缺口，保留真实产物。已完成阶段不倒退；修复脚本生成新资产任务，不能覆盖历史候选/结果。
 
 重开客户端或新会话后重新 catalog、status，不依赖旧聊天或浏览器 ref。有效批准和运行证明仍须当前文件与依赖一致。旧 run 活跃/中断/副作用未知时禁止换任务 ID 重放相同模块；完整中断核对及失败集合重跑留待后续能力。任务 completed 仅表示所选工作流结束，不代表用例全部通过或报告完整性已通过。
+
+
+恢复任务时先 status 查询原 task；`resume-task` 传最新 task_ref，仅核对当前能力与已有产物、恢复原阶段，保留 completed_stages、产物和评估预算，不重录已完成阶段。终态不复活。录制中断仍查询原日志及数据归属，partial 不可直接交接设计；未知副作用先核对，不能从临时浏览器 ref 接着点击。
+
+执行恢复使用 mode=resume/rerun-failed/rerun-all，run_ref 指向父批次；先使用 ui-test-run 的 plan-recovery 检查选择和阻断。分析交接和最终报告绑定本任务新 run，不能误用父 run。执行已完成、分析未完成时，继续当前 analyze 或新建 analyze 指向旧 run，无需重新执行。
