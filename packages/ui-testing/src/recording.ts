@@ -30,7 +30,7 @@ const validStart = ajv.compile(recordingStartSchema);
 const emit = (input: unknown) => JSON.stringify(input, null, 2) + '\n';
 const text = (outcome: Outcome) => outcome.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text).join('\n');
 export const recordingTools = ['generator_setup_page', 'generator_read_log', 'generator_write_test', 'browser_snapshot', 'browser_click',
-  'browser_type', 'browser_press_key', 'browser_select_option', 'browser_navigate', 'browser_verify_text_visible', 'browser_close'];
+  'browser_generate_locator', 'browser_type', 'browser_press_key', 'browser_select_option', 'browser_navigate', 'browser_verify_text_visible', 'browser_close'];
 
 /** 仅做业务交接与限额；每次 execute 恰好调用一个现有 Pi/MCP 工具，不另建 Agent 循环。 */
 export class RecordingService {

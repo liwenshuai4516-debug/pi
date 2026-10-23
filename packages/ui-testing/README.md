@@ -1,6 +1,6 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.0，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断、正式执行、确定性统计、失败分析和独立结果评估，以及按需任务、续跑和资产维护。[实施计划](../../docs/UI测试能力实施计划书.md)中的 UI-01～UI-12 已完成，验收限于记录的版本和受控业务范围；UI-13/UI-14 尚未开始。
+当前版本 0.1.2，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断、正式执行、确定性统计、失败分析和独立结果评估，以及按需任务、续跑和资产维护。[实施计划](../../docs/UI测试能力实施计划书.md)中的 UI-01～UI-12 已完成，验收限于记录的版本和受控业务范围；UI-13/UI-14 尚未开始。
 
 迁移到其他 Pi Agent SDK 项目时，使用[可复用 Skill 分发说明](../../docs/UI测试Skill迁移与安装.md)。统一入口、安装文档、环境检查脚本和完整运行包由仓库导出，不依赖本客户端或 Electron。
 
@@ -109,6 +109,8 @@ Skill `/skill:ui-discover-record` 使用新工具 `ui_discover_record`。工具�
 | finish | 保存原始日志、参数化草稿和完整/局部 recording；不批准设计或正式执行 |
 
 Agent 复用已有读取/检索工具进行源码分析，按业务模块和功能归类，不建设新的框架解析器。只有源码时保存 discovery=source、coverage=discovered 和未核验缺口，可生成带来源的脚本草稿；不会启动浏览器或声称定位器/部署已验证。浏览器清单的 source_refs 使用真实 observation_ref，范围限于当前角色可见状态。单个模块优先，不自动遍历所有提交、删除或通知动作。
+
+0.1.2 的发现 Skill 按需读取 [按功能探索](skills/ui-discover-record/references/function-discovery.md)：页面概览后逐功能推进，在同一角色的录制会话中复用定位，已有单功能成果立即通过 inventory.drafts 保存；最终 generator_write_test 仍只写声明的新文件。定位证据区分当前观察与可复用 locator 的唯一/可操作核验，预算或来源缺口不冒充完整录制。录制 action 枚举接入 MCP 已有的可选 browser_generate_locator，经严格交互核验后复用实际生成的 locator；此更新不改变产物 schema、runner 或批准门禁，真实模型遵循度须另外验收。
 
 首期单一后端为已验证的 Playwright 测试 MCP。start 冻结真实工具前缀、seed/project 和全新草稿路径；setup 实际执行 seed，因此应复用 UI-04 或团队既有前置/数据生命周期 fixture。action 直接使用原工具参数，包含工具本身要求的 intent；`browser_close` 也要求 intent。模型可使用当前 target/ref 交互，但持久脚本须使用语义定位器。
 

@@ -39,6 +39,19 @@ async function setup(t, options = {}) {
   return {fixture,store,service,inventory,inventoryRef,config};
 }
 const okay = message => ({content:[{type:'text',text:message}],isError:false});
+
+test('UI-05: optional native locator generation delegates through the recorded action pipeline',async t=>{
+  const {service,store,config}=await setup(t);
+  const session=await service.start(config),calls=[];
+  const execute=async(tool,input)=>{calls.push({tool,input});return okay(tool.endsWith('browser_generate_locator')?"getByRole('textbox', { name: 'Name', exact: true })":'Ready');};
+  await service.call(session,{operation_id:'setup',tool:'generator_setup_page',input:{seedFile:config.seed_ref.path,project:config.project},intent:'Initialize owned seed'},execute);
+  const result=await service.call(session,{operation_id:'locator',tool:'browser_generate_locator',input:{target:'e1',element:'Name textbox'},intent:'Generate a portable locator from the current observed element'},execute);
+  assert.equal(calls.length,2);
+  assert.equal(calls[1].tool,config.backend+'browser_generate_locator');
+  const saved=JSON.parse(await readFile(join(store.projectRoot,result.observation_ref.path),'utf8'));
+  assert.match(saved.content[0].text,/getByRole/);
+  assert.equal((await service.status(session)).events.length,2);
+});
 function recordingProtocol(fixture, respond) {
   fixture.state.respond=async body=>{const result=await respond(body);
     return result.tool==='ui_discover_record'?{...result,args:{request:result.args}}:result;};
@@ -116,7 +129,7 @@ test('seed',async({uiData,page})=>{const row=await uiData.prepare({creation_meth
     tools:host.entries.get(view.id).agent.state.tools.map(t=>t.name),skills:view.skills.map(s=>s.name)});
   let workflowTask=await workflow.start({task_id:'browser-record-only',mode:'record',scope_ref:config.scope_ref,discovery:'browser'});
   assert.equal(workflowTask.task.data.state,'running',JSON.stringify(workflowTask.blockers));
-  let round=0,session,key,observation,finalInventoryRef,recordingRef;
+  let round=0,session,key,observation,finalInventoryRef,recordingRef,nameLocator,saveLocator;
   const generated=`import {test,expect} from 'playwright/test';
 test('Name persists',async({page})=>{const key='qa-'+crypto.randomUUID();await page.goto('/');
  await page.getByRole('textbox',{name:'Name'}).fill(key);await page.getByRole('button',{name:'Save'}).click();
@@ -130,30 +143,45 @@ test('Name persists',async({page})=>{const key='qa-'+crypto.randomUUID();await p
       case 0:return {tool:'ui_discover_record',args:{operation:'start',configuration:config}};
       case 1:session=response.artifact_refs[0];return action('generator_setup_page',{seedFile:config.seed_ref.path,project:'chromium',plan:'Save owned Name and verify persistence'},'Initialize declared seed');
       case 2:{key=await readFile(keyPath,'utf8');const snapshot=textContent(response.output.content);const actual=snapshot.match(/textbox "Name".*?\[ref=([^\]]+)\]/)?.[1];assert.ok(actual,snapshot);
-        return action('browser_type',{element:'Name textbox',target:actual,text:key,intent:'Enter owned key'},'Enter owned Name');}
-      case 3:return action('browser_snapshot',{},'Refresh refs after typing');
-      case 4:{const snapshot=textContent(response.output.content),target=snapshot.match(/button "Save".*?\[ref=([^\]]+)\]/)?.[1];assert.ok(target,snapshot);
-        return action('browser_click',{element:'Save button',target,intent:'Save owned Name'},'Save owned Name');}
-      case 5:return action('browser_snapshot',{},'Observe saved list');
-      case 6:{assert.match(textContent(response.output.content),new RegExp(key));observation=response.artifact_refs[0];
+        return action('browser_generate_locator',{element:'Name textbox',target:actual},'Generate locator from observed Name');}
+      case 3:{nameLocator=textContent(response.output.content).split('\n').find(line=>line.startsWith('getBy'));assert.ok(nameLocator,JSON.stringify(response));
+        return action('browser_type',{element:'Name textbox',target:nameLocator,text:key,intent:'Enter owned key'},'Validate generated Name locator by strict fill');}
+      case 4:return action('browser_snapshot',{},'Refresh refs after typing');
+      case 5:{const snapshot=textContent(response.output.content),target=snapshot.match(/button "Save".*?\[ref=([^\]]+)\]/)?.[1];assert.ok(target,snapshot);
+        return action('browser_generate_locator',{element:'Save button',target},'Generate locator from observed Save');}
+      case 6:{saveLocator=textContent(response.output.content).split('\n').find(line=>line.startsWith('getBy'));assert.ok(saveLocator,JSON.stringify(response));
+        return action('browser_click',{element:'Save button',target:saveLocator,intent:'Save owned Name'},'Validate generated Save locator by strict click');}
+      case 7:return action('browser_snapshot',{},'Observe saved list');
+      case 8:{assert.match(textContent(response.output.content),new RegExp(key));observation=response.artifact_refs[0];
         const next=structuredClone(inventory);next.id='inventory-observed';const feature=next.data.features[0];feature.source_refs.push(observation);feature.discovery='both';feature.coverage='explored';feature.gaps=[];
-        return {tool:'ui_discover_record',args:{operation:'inventory',inventory:next}};}
-      case 7:finalInventoryRef=response.artifact_refs[0];return action('generator_read_log',{},'Preserve native action journal');
-      case 8:assert.match(textContent(response.output.content),/getByRole/);return action('generator_write_test',{fileName:config.output_file,code:generated},'Save parameterized draft from real actions');
-      case 9:return action('browser_close',{intent:'Close seed and clean owned data'},'Close seed and clean owned data');
-      case 10:return {tool:'ui_discover_record',args:{operation:'finish',session_ref:session,inventory_ref:finalInventoryRef,initial_state:'fresh anonymous context with empty localStorage',completion,gaps:[],goal_reached:true}};
+        return {tool:'ui_discover_record',args:{operation:'inventory',inventory:next,drafts:[{name:'save-name.md',content:'R1: Save Name, reload persistence; observed locator '+nameLocator+' and '+saveLocator+' validated by strict fill/click. Observation: '+observation.path}]}};}
+      case 9:{finalInventoryRef=response.artifact_refs[0];const early=await store.load(finalInventoryRef);assert.equal(early.data.draft_refs.length,1);
+        await assert.rejects(readFile(join(fixture.project,config.output_file)),{code:'ENOENT'});
+        return action('browser_navigate',{url:fixture.url,intent:'Reload declared page to verify persistence'},'Reload within same recording context');}
+      case 10:return action('browser_snapshot',{},'Inspect persisted state after reload');
+      case 11:assert.match(textContent(response.output.content),new RegExp(key));return action('browser_type',{element:'Name textbox',target:nameLocator,text:key,intent:'Reuse Name locator after reload'},'Reuse stable locator after page replacement without resolving a new ref');
+      case 12:return action('generator_read_log',{},'Preserve native action journal');
+      case 13:assert.match(textContent(response.output.content),/getByRole/);return action('generator_write_test',{fileName:config.output_file,code:generated},'Save parameterized draft from real actions');
+      case 14:return action('browser_close',{intent:'Close seed and clean owned data'},'Close seed and clean owned data');
+      case 15:return {tool:'ui_discover_record',args:{operation:'finish',session_ref:session,inventory_ref:finalInventoryRef,initial_state:'fresh anonymous context with empty localStorage',completion,gaps:[],goal_reached:true}};
       default:recordingRef=response.artifact_refs[0];return {text:'Recorded draft saved. Independent design review is still required.'};
     }
   });
   await host.send(view.id,'/skill:ui-discover-record Record the isolated Save Name feature; source R1 requires reload persistence.',[],[]);
   if(fixture.state.responseError)throw fixture.state.responseError;
-  assert.equal(round,12);assert.match(fixture.state.instructions.at(-1),/ui_discover_record/);
+  assert.equal(round,17);assert.match(fixture.state.instructions.at(-1),/ui_discover_record/);
   const saved=await new ArtifactStore(fixture.project).load(recordingRef);
-  assert.equal(saved.data.status,'complete');assert.equal(saved.data.steps.length,8);
+  assert.equal(saved.data.status,'complete');assert.equal(saved.data.steps.length,13);
   assert.ok(saved.data.data_refs.some(ref=>ref.path.endsWith('/cleanup-result.json')),'recording teardown must persist lifecycle result');
   const cleanupRefs=saved.data.data_refs.filter(ref=>ref.path.endsWith('/cleanup-result.json'));
   for(const ref of cleanupRefs){const data=JSON.parse(await readFile(join(fixture.project,ref.path),'utf8'));assert.equal(data.cleanup_state,'cleaned');}
-  assert.equal((await service.status(session)).events.length,8);
+  const recorded=(await service.status(session)).events;
+  assert.equal(recorded.length,13);
+  assert.equal(recorded.filter(e=>e.request.tool==='generator_setup_page').length,1);
+  assert.equal(recorded.filter(e=>e.request.tool==='browser_generate_locator').length,2);
+  assert.equal(recorded.filter(e=>e.request.tool==='browser_navigate').length,1);
+  assert.deepEqual(recorded.filter(e=>e.request.tool==='browser_type').map(e=>e.request.input.target),[nameLocator,nameLocator]);
+  assert.match(nameLocator,/getByRole|getByLabel/);assert.doesNotMatch(generated,/aria-ref|target:.*e\d/);
   await assert.rejects(service.call(session,{operation_id:'late',tool:'browser_snapshot',input:{},intent:'Late'},async()=>okay('no')),/登记结束/);
   const replay=await promisify(execFile)(process.execPath,[join(repoRoot,'node_modules/playwright/cli.js'),'test','recorded.spec.ts','--reporter=json'],{cwd:fixture.project,timeout:30000});
   assert.equal(JSON.parse(replay.stdout).stats.expected,1,'draft replay is design validation, not formal execution');
