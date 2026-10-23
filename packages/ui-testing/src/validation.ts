@@ -115,10 +115,15 @@ export async function workspacePath(root: string, path: string): Promise<string>
   return actual;
 }
 export async function verifyReferences(root: string, input: unknown): Promise<void> {
+  // 仅本次核验复用相同路径与摘要；下一次调用仍重新读取，冲突摘要不能借用已通过结果。
+  const verified = new Set<string>();
   for (const ref of fileRefs(input)) {
+    const key = `${ref.path}\0${ref.sha256}`;
+    if (verified.has(key)) continue;
     try {
       const actual = await workspacePath(root, ref.path);
       if (sha256(await readFile(actual)) !== ref.sha256) throw new WorkflowError('precondition', `引用摘要不匹配：${ref.path}`);
+      verified.add(key);
     } catch (error) {
       if (error instanceof WorkflowError) throw error;
       throw new WorkflowError('precondition', `引用不存在或不可读取：${ref.path}`);
