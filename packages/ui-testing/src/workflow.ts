@@ -194,7 +194,8 @@ export class UiWorkflowService {
       'result-review': ['report', 'result-review'] };
     if (artifacts.some(a => !kinds[stage].includes(a.kind))) throw new WorkflowError('invalid-input', '阶段产物类型不匹配');
     const allRefs = [...task.data.output_refs, ...outputRefs];
-    const all = await Promise.all(allRefs.map(async ref => ({ ref, artifact: await this.store.load(ref, false) })));
+    // output_refs 也保留交付 Markdown；阶段选择只读取原生产物清单。
+    const all = await Promise.all(allRefs.filter(ref => ref.path.endsWith('/manifest.json')).map(async ref => ({ ref, artifact: await this.store.load(ref, false) })));
     const scope = task.data.scope_ref;
     const pick = <K extends Artifact['kind']>(kind: K) => artifacts.find(a => a.kind === kind) as Artifact<K> | undefined;
     const asset = pick('asset');
@@ -244,6 +245,14 @@ export class UiWorkflowService {
       if (!selectedRun || !same((report.artifact as Artifact<'report'>).data.run_ref, selectedRun)) throw new WorkflowError('precondition', '最终报告须来自任务选定批次，不能以另一批次替换');
       const delivered = await new ResultReviewService(this.root, this.authorityRoot).deliver(report.ref, review ? outputRefs[artifacts.indexOf(review)] : undefined);
       deliveryRef = delivered.delivery_ref;allRefs.push(deliveryRef);
+      // 阶段文件已交付不等于完整任务完成；保留同一任务及产物供显式续跑。
+      if (delivered.completeness !== 'complete' || !delivered.independently_approved) {
+        const partial = report.artifact as Artifact<'report'>;
+        const blockedRef = await this.store.updateTask(taskRef, { ...task, data: { ...task.data,
+          state: 'blocked', stage, output_refs: [...new Map(allRefs.map(ref => [ref.path, ref])).values()],
+          blockers: ['报告完整性未通过，最终交付未完成；修复缺口后续跑当前任务。', ...partial.data.limitations] } });
+        return { ...await this.status(blockedRef), delivery_ref: deliveryRef };
+      }
     }
     const completed = [...new Set([...task.data.completed_stages, stage])], next = sequence.find(s => !completed.includes(s));
     const nextRef = await this.store.updateTask(taskRef, { ...task, data: { ...task.data, state: next ? 'running' : 'completed',

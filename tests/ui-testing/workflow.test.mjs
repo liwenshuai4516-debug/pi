@@ -4,11 +4,11 @@ import { readFile, writeFile, mkdir, symlink, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { UiWorkflowService, DesignReviewService, ArtifactStore, capabilities, assetDigest,
+import { UiWorkflowService, DesignReviewService, ResultReviewService, ArtifactStore, capabilities, assetDigest,
   sha256, collectResults, saveAnalysis, draftReport } from '../../packages/ui-testing/dist/index.js';
 import { setup, prepareDiagnostic, response, decision } from '../support/ui-design-fixture.mjs';
 import { ready } from '../support/ui-run-fixture.mjs';
-import { resultFixture, resultDecision, finding } from '../support/ui-result-fixture.mjs';
+import { resultFixture, resultDecision, resultResponse, finding } from '../support/ui-result-fixture.mjs';
 import { artifact } from '../support/ui-artifacts.mjs';
 import { PluginManager } from '../../dist/main/plugins/manager.js';
 import { AgentHost } from '../../dist/main/agent/agent-host.js';
@@ -181,7 +181,8 @@ test('UI-09: analyze and view routes use old evidence only; full result review c
   let guarded=await workflow.start({task_id:'selected-run-guard',mode:'analyze',run_ref:execution.run_ref});
   guarded=await workflow.checkpoint(guarded.task_ref,'analyze',[d.report_ref]);
   await assert.rejects(workflow.checkpoint(guarded.task_ref,'result-review',[otherReport.report_ref]),/选定批次/);
-  const trace=execution.run.data.output_refs.find(r=>r.path.endsWith('trace.zip'));await rm(join(f.root,trace.path));
+  const trace=execution.run.data.output_refs.find(r=>r.path.endsWith('trace.zip'));
+  const traceBytes=await readFile(join(f.root,trace.path));await rm(join(f.root,trace.path));
   const partial=await collectResults(f.root,execution.run_ref,'workflow-missing-trace');
   const analysis=await saveAnalysis(f.root,artifact('analysis',{run_ref:execution.run_ref,results_ref:partial.results_ref,
     findings:[finding(partial)]},'workflow-partial-analysis'));
@@ -189,7 +190,22 @@ test('UI-09: analyze and view routes use old evidence only; full result review c
   let incomplete=await workflow.start({task_id:'analyze-partial',mode:'analyze',run_ref:execution.run_ref});
   incomplete=await workflow.checkpoint(incomplete.task_ref,'analyze',[report.report_ref]);
   incomplete=await workflow.checkpoint(incomplete.task_ref,'result-review',[report.report_ref]);
-  assert.equal(incomplete.task.data.state,'completed');assert.ok(incomplete.delivery_ref);
-  assert.match(await readFile(join(f.root,incomplete.delivery_ref.path),'utf8'),/阶段报告；完整性未通过/);
+  assert.equal(incomplete.task.data.state,'blocked');assert.ok(incomplete.delivery_ref);
+  assert.equal(incomplete.task.data.completed_stages.includes('result-review'),false);
+  assert.equal(incomplete.next_stage,'result-review');
+  assert.ok(incomplete.task.data.blockers.some(reason=>reason.includes('完整')));
+  const partialDelivery=incomplete.delivery_ref,partialTaskId=incomplete.task.id;
+  incomplete=await workflow.resumeTask(incomplete.task_ref);
+  assert.equal(incomplete.task.id,partialTaskId);
+  assert.ok(incomplete.task.data.output_refs.some(ref=>ref.path===partialDelivery.path));
+  assert.equal(incomplete.task.data.completed_stages.includes('result-review'),false);
+  assert.match(await readFile(join(f.root,partialDelivery.path),'utf8'),/阶段报告；完整性未通过/);
+  await writeFile(join(f.root,trace.path),traceBytes);
+  const approved=await new ResultReviewService(f.root,f.authority).assess(d.report_ref,'restored-result-review',resultResponse);
+  incomplete=await workflow.checkpoint(incomplete.task_ref,'result-review',[d.report_ref,approved.review_ref]);
+  assert.equal(incomplete.task.data.state,'completed');
+  assert.equal(incomplete.task.id,partialTaskId);
+  assert.ok(incomplete.task.data.output_refs.some(ref=>ref.path===partialDelivery.path));
+  assert.equal((await f.store.load(report.report_ref,false)).data.completeness,'partial');
   assert.equal(f.fixture.state.browserRequests,before);
 });
