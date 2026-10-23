@@ -1,6 +1,6 @@
 # Pi UI 测试能力包
 
-当前版本 0.1.2，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断、正式执行、确定性统计、失败分析和独立结果评估，以及按需任务、续跑和资产维护。[实施计划](../../docs/UI测试能力实施计划书.md)中的 UI-01～UI-12 已完成，验收限于记录的版本和受控业务范围；UI-13/UI-14 尚未开始。
+当前版本 0.1.3，提供产物契约、本地持久化、环境/数据 fixture、发现与自动录制、独立设计评估与诊断、正式执行、确定性统计、失败分析和独立结果评估，以及按需任务、续跑和资产维护。[实施计划](../../docs/UI测试能力实施计划书.md)中的 UI-01～UI-12 已完成，验收限于记录的版本和受控业务范围；UI-13/UI-14 尚未开始。
 
 迁移到其他 Pi Agent SDK 项目时，使用[可复用 Skill 分发说明](../../docs/UI测试Skill迁移与安装.md)。统一入口、安装文档、环境检查脚本和完整运行包由仓库导出，不依赖本客户端或 Electron。
 
@@ -57,6 +57,10 @@ node packages/ui-testing/dist/cli.js store-load /path/to/ref.json /path/to/proje
 ## 环境与数据 fixture（UI-04）
 
 [环境模板](examples/environment.json) 声明站点、角色、身份探针和初始状态。`auth.reference` 是环境变量名称；变量值指向私有 Playwright storageState 文件，文件内容不纳入资产。匿名环境使用 `{"kind":"none"}`。认证文件由既有登录流程生成，本包不自建登录器；每次执行仍从页面验证身份，文件可解析不等于登录有效。部署版本由调用方提供，当前 fixture 不据此声称已验证服务端部署版本。
+
+0.1.3 的诊断与正式 runner 将认证执行的原始 reporter、stdout/stderr、截图和 trace 保存到宿主 `authorityRoot/private-evidence/<随机ID>/`，目录权限 0700，不能位于工作区或经符号链接跳回工作区。公开副本移除 storageState 中已知 cookie/localStorage 值、认证路径及其 URI/JSON/base64 表示；附件路径使用摘要，图片、视频与 trace 二进制资源不公开。公开 trace 标明脱敏和缺失资源，统计保留真实失败，缺失原始附件时完整性为 false；脱敏会改变 reporter 状态/字段时拒绝发布，不猜测结果。匿名执行保留原行为。`tests/ui-testing/private-evidence.test.mjs` 覆盖目录、编码、附件与状态冲突；真实合成认证的正反诊断和正式运行回归由消费项目保存。
+
+该处理只覆盖原生诊断/runner 捕获及已知值，不是任意秘密识别器或测试脚本沙箱；运行中新生成的凭据、嵌套/自定义编码、业务敏感内容、脚本自行写文件、录制 MCP 与数据台账尚不在此保护范围。不得以这些工程回归放行未经核验的真实私密环境；宿主仍须完成私密桥接及全渠道验收。原始私密证据不随工作区归档、迁移或提交，保留和清理由宿主按所属批次管理。
 
 被测项目将本包作为本地开发依赖安装后，从 `pi-ui-testing/fixtures` 导入 `test/expect`（也可使用包中 `dist/fixtures.js` 的实际路径）；Playwright 使用锁定的 `@playwright/test` 1.62.1。Pi 包安装负责 Agent 资源，不自动改变被测项目的 npm 依赖或 Playwright 配置。
 

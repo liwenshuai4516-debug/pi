@@ -11,6 +11,7 @@ import { fileRefSchema, type Artifact, type FileRef } from './contracts.js';
 import { ArtifactStore } from './store.js';
 import { authState, validateEnvironment, type UiEnvironment } from './environment.js';
 import { sha256, verifyReferences, workspacePath, WorkflowError } from './validation.js';
+import { PrivateEvidence, privateCaptureConfig } from './private-evidence.js';
 
 export const diagnosticSpecSchema = Type.Object({
   environment_ref: fileRefSchema, config_ref: fileRefSchema,
@@ -108,7 +109,7 @@ export function checkDiagnosticReport(root: string, asset: Artifact<'asset'>, re
 
 /** 使用原版 Playwright CLI/config/reporter；诊断独立保存且永不计入正式 run。 */
 export async function runDesignDiagnostics(root: string, assetRef: FileRef, reviewRef: FileRef, specRef: FileRef, signal?: AbortSignal,
-  onStart?: (inputRef: FileRef) => Promise<void>) {
+  onStart?: (inputRef: FileRef) => Promise<void>, authorityRoot?: string) {
   root = await realpath(root);
   const store = new ArtifactStore(root), asset = await store.load(assetRef) as Artifact<'asset'>;
   await verifyReferences(root, specRef);
@@ -173,6 +174,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
       break;
     }
     const reportPath = join(root, directory, 'native.json'), outputDir = join(root, directory, 'output');
+    const capture = await PrivateEvidence.create(root, authorityRoot, env, directory);
     const configRef = await store.putFile(`${directory}/playwright.config.mjs`,
       `import base from ${JSON.stringify(pathToFileURL(await workspacePath(root, round.config_ref.path)).href)};\n` +
       `export default {...base,...${JSON.stringify({ testDir: root, testMatch: [...new Set(asset.data.bindings.map(b => join(root, b.script_ref.path)))],
@@ -180,7 +182,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
         outputDir, reporter: [['json', { outputFile: reportPath }]],
         ...(asset.data.compiler_config_ref ? { tsconfig: await workspacePath(root, asset.data.compiler_config_ref.path) } : {}),
         projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
-      })},grep:undefined,grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(env.base_url)},` +
+      })},${capture ? privateCaptureConfig : ''}grep:undefined,grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(env.base_url)},` +
       `uiEnvironment:${JSON.stringify(env)},uiProjectRoot:${JSON.stringify(root)},uiOwner:${JSON.stringify({ task_id: id, kind: 'recording', id })},` +
       `storageState:${env.auth.kind === 'none' ? 'undefined' : `process.env[${JSON.stringify(env.auth.reference)}]`},headless:true,trace:'retain-on-failure'}};\n`);
     const args = [cli, 'test', '--config', join(root, configRef.path)];
@@ -189,7 +191,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
       config_ref: configRef, process_token: processToken, created_at: new Date().toISOString() }));
     // 超时/取消不重试业务动作；原生 fixture teardown 及其残留由后续诊断证据核对。
     const running = execute(process.execPath, args, { cwd: root, signal,
-      env: { ...process.env, PI_UI_DIAGNOSTIC_PROCESS_TOKEN: processToken },
+      env: { ...process.env, PI_UI_PRIVATE_EVIDENCE_DIR: undefined, ...capture?.env, PI_UI_DIAGNOSTIC_PROCESS_TOKEN: processToken },
       timeout: spec.timeout_ms + 5000, maxBuffer: 4 * 1024 * 1024, killSignal: 'SIGINT' });
     // 先挂接拒绝处理，再等待存盘；取消不能产生未处理的 Promise 拒绝。
     const kill = setTimeout(() => running.child.kill('SIGKILL'), spec.timeout_ms + 10000);
@@ -200,12 +202,14 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
       .finally(() => clearTimeout(kill));
     const startedRef = await store.putFile(`${directory}/process-started.json`, json({ intent_ref: intentRef,
       process_token: processToken, pid: running.child.pid ?? null, observed_at: new Date().toISOString() }));
-    const processResult = await completion;
+    const rawProcessResult = await completion;
+    const processResult = capture ? await capture.process(rawProcessResult) : rawProcessResult;
     const processRef = await store.putFile(`${directory}/process.json`, json({ command: process.execPath, args,
       config_ref: configRef, intent_ref: intentRef, started_ref: startedRef, process_token: processToken, ...processResult }));
     const evidence: FileRef[] = [preflightRef, configRef, intentRef, startedRef], problems: string[] = [];
     let reportRef: FileRef | undefined;
     try {
+      if (capture) evidence.push(await capture.publish(store));
       const bytes = await readFile(reportPath), report: NativeReport = JSON.parse(bytes.toString());
       reportRef = await store.putFile(`${directory}/report.json`, bytes);
       problems.push(...checkDiagnosticReport(root, asset, report, round.assertion_ids));

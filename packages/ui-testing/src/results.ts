@@ -131,6 +131,13 @@ export async function reconcileRun(root: string, runRef: FileRef) {
         }
         let blocked = false, cleanupFailed = false;
         for (const attachment of attempt.attachments ?? []) {
+          if (attachment.name === 'ui-evidence-privacy') {
+            const privacy = body(attachment);
+            if (!privacy || privacy.withheld_attachment_count > 0 || privacy.trace_resources_withheld) {
+              evidenceGaps.push('认证执行的公开证据已脱敏，图片或二进制资源仅保留在私有目录');
+              issue('R3', '公开证据不包含全部原始私密附件，不能声明完整视觉证据');
+            }
+          }
           if (attachment.path) {
             const path = relative(root, resolve(root, attachment.path)).replaceAll('\\', '/');
             const ref = readable.find(r => r.path === path);

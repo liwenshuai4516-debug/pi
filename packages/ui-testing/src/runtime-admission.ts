@@ -85,7 +85,7 @@ export class RuntimeAdmissionService {
       try {
         const result = await runDesignDiagnostics(this.root, assetRef, reviewRef, specRef, signal, async inputRef => {
           request.started = true; request.input_ref = inputRef; await atomic(path, request);
-        });
+        }, this.authorityRoot);
         await this.design.gate(assetRef, reviewRef, false);
         await verifyReferences(this.root, result.summary_ref); await verifyReferences(this.root, result);
         const uncertain = result.status === 'cancelled' || result.unknown_effects;

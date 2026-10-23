@@ -10,6 +10,7 @@ import { fileRefSchema, type Artifact, type FileRef } from './contracts.js';
 import { ArtifactStore } from './store.js';
 import { DesignReviewService } from './review.js';
 import { preflightEnvironment } from './diagnostics.js';
+import { PrivateEvidence, privateCaptureConfig } from './private-evidence.js';
 import { validateEnvironment } from './environment.js';
 import { sha256, verifyReferences, workspacePath, WorkflowError } from './validation.js';
 import { recoveryPlan } from './recovery.js';
@@ -106,6 +107,7 @@ export class UiRunService {
       } catch (error) { if (error instanceof WorkflowError) throw error; throw new WorkflowError('missing-capability', '缺少原生 Playwright CLI'); }
       const inputRef = await this.store.putFile(`${base}/input.json`, json(input));
       const reportPath = join(root, base, 'native.json'), outputDir = join(root, base, 'output');
+      let capture: PrivateEvidence | undefined;
       const configRef = await this.store.putFile(`${base}/playwright.config.mjs`,
         `import base from ${JSON.stringify(pathToFileURL(await workspacePath(root, input.config_ref.path)).href)};\n` +
         `export default {...base,...${JSON.stringify({ testDir: root,
@@ -114,7 +116,7 @@ export class UiRunService {
           outputDir, reporter: [['json', { outputFile: reportPath }]],
           ...(asset.data.compiler_config_ref ? { tsconfig: await workspacePath(root, asset.data.compiler_config_ref.path) } : {}),
           projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
-        })},grep:${recovery ? `new RegExp(${JSON.stringify('(?:^| )(?:' + selectedBindings.map(b => b.test_title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')$')})` : 'undefined'},grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(environment.base_url)},` +
+        })},${environment.auth.kind !== 'none' ? privateCaptureConfig : ''}grep:${recovery ? `new RegExp(${JSON.stringify('(?:^| )(?:' + selectedBindings.map(b => b.test_title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')$')})` : 'undefined'},grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(environment.base_url)},` +
         `uiEnvironment:${JSON.stringify(environment)},uiProjectRoot:${JSON.stringify(root)},` +
         `uiOwner:${JSON.stringify({ task_id: input.task_id, kind: 'run', id: runId })},` +
         `storageState:${environment.auth.kind === 'none' ? 'undefined' : `process.env[${JSON.stringify(environment.auth.reference)}]`},` +
@@ -132,6 +134,10 @@ export class UiRunService {
       const reservation = await this.store.reserveRun(run); runRef = reservation.ref;
       if (!reservation.created) return await this.status(input.task_id, input.request_id);
       const preflight = await preflightEnvironment(root, environment, Math.min(input.timeout_ms, 30000), signal);
+      if (preflight.status === 'completed') {
+        try { capture = await PrivateEvidence.create(root, this.authorityRoot, environment, base); }
+        catch { preflight.status = 'blocked'; preflight.check = 'private-evidence'; }
+      }
       const preflightRef = await this.store.putFile(`${base}/preflight.json`, json(preflight));
       let status = preflight.status === 'completed' ? 'completed' : 'blocked';
       const evidence: FileRef[] = [inputRef, configRef, preflightRef, ...(selectionRef ? [selectionRef] : [])];
@@ -143,7 +149,7 @@ export class UiRunService {
           process_token: processToken, config_ref: configRef, created_at: new Date().toISOString() }));
         evidence.push(intent);
         const running = execute(process.execPath, args, { cwd: root, signal, timeout: input.timeout_ms + 5000,
-          maxBuffer: 4 * 1024 * 1024, killSignal: 'SIGINT', env: { ...process.env, PI_UI_RUN_PROCESS_TOKEN: processToken } });
+          maxBuffer: 4 * 1024 * 1024, killSignal: 'SIGINT', env: { ...process.env, PI_UI_PRIVATE_EVIDENCE_DIR: undefined, ...capture?.env, PI_UI_RUN_PROCESS_TOKEN: processToken } });
         const kill = setTimeout(() => running.child.kill('SIGKILL'), input.timeout_ms + 10000);
         const completion = running.then(r => ({ code: 0 as number | string | null, signal: null as string | null, stdout: r.stdout, stderr: r.stderr }),
           (e: { code?: number | string; signal?: string; stdout?: string; stderr?: string }) => ({ code: e.code ?? null,
@@ -152,11 +158,13 @@ export class UiRunService {
           process_token: processToken, pid: running.child.pid ?? null, observed_at: new Date().toISOString() }));
         evidence.push(startedRef);
         if (running.child.pid) runRef = await this.store.markRunStarted(runRef, running.child.pid, processToken);
-        const result = await completion;
+        const rawResult = await completion;
+        const result = capture ? await capture.process(rawResult) : rawResult;
         evidence.push(await this.store.putFile(`${base}/process.json`, json({ ...result, command: process.execPath, args,
           intent_ref: intent, started_ref: startedRef, process_token: processToken })));
         status = result.signal || typeof result.code !== 'number' ? 'unknown' : [0, 1].includes(result.code) ? 'completed' : 'blocked';
         try {
+          if (capture) evidence.push(await capture.publish(this.store));
           const bytes = await readFile(reportPath), report = JSON.parse(bytes.toString());
           const rawRef = await this.store.putFile(`${base}/report.json`, bytes); evidence.push(rawRef);
           if (!Array.isArray(report.suites)) throw new Error('missing suites');

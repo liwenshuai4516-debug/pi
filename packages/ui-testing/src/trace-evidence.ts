@@ -14,23 +14,27 @@ export async function traceEvidence(root: string, resultsRef: FileRef, traceRef:
   await verifyReferences(root, traceRef);
   const bytes = await readFile(await workspacePath(root, traceRef.path));
   if (bytes.length > 32 * 1024 * 1024) throw new WorkflowError('insufficient-evidence', 'trace 超出读取预算，不截断后作为完整证据');
-  const require = createRequire(join(root, 'package.json'));
+  const projectRequire = createRequire(join(root, 'package.json'));
+  const require = createRequire(projectRequire.resolve('playwright/package.json'));
   if (require('playwright-core/package.json').version !== '1.62.1') throw new WorkflowError('incompatible-version', 'trace 读取仅验证过 Playwright 1.62.1');
   const { yauzl } = require('playwright-core/lib/utilsBundle');
   const zip = await new Promise<any>((resolve, reject) => yauzl.fromBuffer(bytes, { lazyEntries: true }, (e: Error | null, z: unknown) => e ? reject(e) : resolve(z)));
   const events: { entry: string; line: number; event: unknown }[] = [];
-  let size = 0;
+  let size = 0, privacy: unknown;
   try {
     await new Promise<void>((resolve, reject) => {
       zip.on('error', reject);zip.on('end', resolve);
       zip.on('entry', async (entry: { fileName: string; uncompressedSize: number }) => {
         try {
-          if (!entry.fileName.endsWith('.trace')) { zip.readEntry();return; }
+          if (!entry.fileName.endsWith('.trace') && entry.fileName !== 'ui-evidence-privacy.json') { zip.readEntry();return; }
           size += entry.uncompressedSize;
           if (size > 4 * 1024 * 1024) throw new Error('trace event budget');
           const stream = await new Promise<any>((resolve, reject) => zip.openReadStream(entry, (e: Error | null, s: unknown) => e ? reject(e) : resolve(s)));
           const chunks: Buffer[] = [];let actualSize = 0;
           for await (const chunk of stream) { actualSize += chunk.length;if (actualSize > entry.uncompressedSize) throw new Error('trace size mismatch');chunks.push(chunk); }
+          if (entry.fileName === 'ui-evidence-privacy.json') {
+            privacy = JSON.parse(Buffer.concat(chunks).toString('utf8')); zip.readEntry(); return;
+          }
           Buffer.concat(chunks).toString('utf8').split('\n').forEach((line, index) => {
             if (!line.trim()) return;
             const event = JSON.parse(line);
@@ -44,7 +48,9 @@ export async function traceEvidence(root: string, resultsRef: FileRef, traceRef:
   } catch { throw new WorkflowError('insufficient-evidence', 'trace 事件无法完整读取，保留原归档，不补造内容'); }
   finally { zip.close(); }
   if (!events.length) throw new WorkflowError('insufficient-evidence', 'trace 中没有可读取事件');
-  const output = { source_ref: traceRef, owners, selection: 'All before/after/log/event/console records from *.trace; excludes snapshots, resources and network archives. Not proof of server root cause.', events };
+  const output = { source_ref: traceRef, owners, ...(privacy ? { privacy } : {}), selection:
+    (privacy ? 'Redacted public capture; original binary resources and images remain private. ' : '') +
+    'All before/after/log/event/console records from *.trace; excludes snapshots, resources and network archives. Not proof of server root cause.', events };
   if (Buffer.byteLength(JSON.stringify(output)) > 512 * 1024) throw new WorkflowError('insufficient-evidence', 'trace 事件超出评估预算，不静默截断');
   // 前后核对原始归档；返回内容由原始字节重算，不能混入手工伪造的摘录。
   if (sha256(await readFile(await workspacePath(root, traceRef.path))) !== traceRef.sha256) throw new WorkflowError('insufficient-evidence', 'trace 在读取期间变化');
