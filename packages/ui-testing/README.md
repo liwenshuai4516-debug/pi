@@ -250,3 +250,7 @@ execute 指定 asset_ref，顺序为 execute → analyze → result-review；ana
 export(asset_ref,bundle_id) 将同一资产显式引用闭包写到 qa/ui-transfers/<id>/files 和 bundle.json，保留来源、fixture/helper、配置、数据规则与依赖版本，拒绝私有配置/认证文件与绝对模块导入，不复制 SessionManager、运行历史或私有批准。闭包上限 5000 文件。把包放入新项目可读目录后 import(bundle_ref) 校验全部摘要，缺失依赖返回清单，不覆盖同路径不同内容；目标重新审查和诊断，迁移不等于运行就绪。无需原 Skill 目录，私有身份状态重新配置。
 
 audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据过期和缺失/摘要失配，原 run/report 不改。仍被 run/评估/报告引用的证据默认保护；没有外部缺陷状态可信源时不猜测可删除，当前维护入口不自动删除任何证据。普通保留期不作独立删除授权。验证见 tests/ui-testing/maintenance.test.mjs。
+
+## 设计评审预算续授
+
+受信任宿主在已有用户明确授权后可调用 `DesignReviewService.renewBudget(taskRef, assetRef, { authorization_id, additional_rounds, reason }, authorize)`。每批追加1–3轮，费用由宿主限制；原scope不变，全部旧尝试保留。授权回调只在新授权时调用，拒绝不写入，重复ID参数冲突拒绝；有pending请求时不能续授。该接口不登记为Agent工具，不生成批准。

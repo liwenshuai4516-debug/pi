@@ -32,6 +32,10 @@ const json = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
 const same = (a: FileRef, b: FileRef) => a.path === b.path && a.sha256 === b.sha256;
 const absent = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
+export type ReviewBudgetAuthorization = { authorization_id: string; additional_rounds: number; reason: string };
+export type ReviewBudgetGrant = ReviewBudgetAuthorization & { task_ref: FileRef; asset_ref: FileRef;
+  used_rounds: number; previous_limit: number; total_limit: number; created_at: string };
+
 /** 私有登记只保存信任凭据和调用预算；业务资产/评估内容仍以项目 manifest 为唯一权威。 */
 export class DesignReviewService {
   readonly store: ArtifactStore;
@@ -44,7 +48,47 @@ export class DesignReviewService {
   }
   private async attempts(dir: string): Promise<Attempt[]> {
     const names = (await readdir(dir)).filter(n => /^attempt-\d+\.json$/.test(n));
-    return Promise.all(names.sort().map(async n => JSON.parse(await readFile(join(dir, n), 'utf8'))));
+    return Promise.all(names.sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0])).map(async n => JSON.parse(await readFile(join(dir, n), 'utf8'))));
+  }
+  private async grants(dir: string): Promise<ReviewBudgetGrant[]> {
+    const names = (await readdir(dir)).filter(n => /^grant-[a-f0-9]{64}\.json$/.test(n));
+    return Promise.all(names.map(async name => JSON.parse(await readFile(join(dir, name), 'utf8'))));
+  }
+  /** 仅供受信任宿主：先取得用户明确授权，再追加私有预算。不得登记为模型可调用工具。
+   * 保留原 scope、循环和尝试；额度变更不产生批准，也不重放未知请求。费用由宿主另行限制。 */
+  async renewBudget(taskRef: FileRef, assetRef: FileRef, authorization: ReviewBudgetAuthorization,
+    authorize: (request: ReviewBudgetAuthorization & { task_ref: FileRef; asset_ref: FileRef; used_rounds: number; current_limit: number }) => Promise<boolean>): Promise<ReviewBudgetGrant> {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$/.test(authorization.authorization_id) ||
+      !Number.isInteger(authorization.additional_rounds) || authorization.additional_rounds < 1 || authorization.additional_rounds > 3 ||
+      !authorization.reason?.trim() || authorization.reason.length > 2000) throw new WorkflowError('invalid-input', '续授需要授权 ID、原因及 1 到 3 次额度');
+    const task = await this.store.load(taskRef) as Artifact<'task'>, asset = await this.store.load(assetRef) as Artifact<'asset'>;
+    if (task.kind !== 'task' || asset.kind !== 'asset' || !same(task.data.scope_ref, asset.data.scope_ref) ||
+      ['completed', 'cancelled'].includes(task.data.state) || task.data.stage !== 'design-review') throw new WorkflowError('precondition', '续授须绑定同一范围的未终结设计评估任务');
+    const scope = await this.store.load(task.data.scope_ref) as Artifact<'scope'>;
+    const group = sha256(json([task.id, task.data.input_sha256, task.data.scope_ref, [...asset.data.module_ids].sort()]));
+    const dir = join(this.authorityRoot, 'loops', group); await mkdir(dir, { recursive: true, mode: 0o700 });
+    let release;
+    try { release = await lockfile.lock(dir, { realpath: true, retries: 0 }); }
+    catch { throw new WorkflowError('precondition', '该评估循环已有操作在执行'); }
+    try {
+      const attempts = await this.attempts(dir), grants = await this.grants(dir);
+      const old = grants.find(g => g.authorization_id === authorization.authorization_id);
+      if (old) {
+        if (old.additional_rounds !== authorization.additional_rounds || old.reason !== authorization.reason || !same(old.asset_ref, assetRef))
+          throw new WorkflowError('precondition', '同一授权 ID 不可改变额度、原因或候选');
+        return old;
+      }
+      if (attempts.some(a => a.state === 'pending')) throw new WorkflowError('precondition', '已有结果不明的评估，不能续授后重放');
+      const currentLimit = scope.data.budget.max_review_rounds + grants.reduce((n, g) => n + g.additional_rounds, 0);
+      if (typeof authorize !== 'function' || !await authorize({ ...authorization, task_ref: taskRef, asset_ref: assetRef,
+        used_rounds: attempts.length, current_limit: currentLimit })) throw new WorkflowError('review-rejected', '未取得宿主用户明确授权，不追加额度');
+      // 授权等待期间仍持锁；写入前重验任务、候选及其依赖，拒绝过期对象。
+      await this.store.load(taskRef); await this.store.load(assetRef);
+      const grant: ReviewBudgetGrant = { ...authorization, task_ref: taskRef, asset_ref: assetRef, used_rounds: attempts.length,
+        previous_limit: currentLimit, total_limit: currentLimit + authorization.additional_rounds, created_at: new Date().toISOString() };
+      await this.atomic(join(dir, `grant-${sha256(authorization.authorization_id)}.json`), grant);
+      return grant;
+    } finally { await release(); }
   }
   async assess(taskRef: FileRef, assetRef: FileRef, requestId: string, call: ReviewCall): Promise<{ review_ref: FileRef; decision: string; round: number }> {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$/.test(requestId)) throw new WorkflowError('invalid-input', '评估请求 ID 无效');
@@ -68,7 +112,9 @@ export class DesignReviewService {
         return { review_ref: duplicate.review_ref, decision: review.data.decision, round: duplicate.round };
       }
       if (attempts.some(a => a.state === 'pending')) throw new WorkflowError('precondition', '已有结果不明的评估，先核对旧调用');
-      if (attempts.length >= scope.data.budget.max_review_rounds) throw new WorkflowError('review-rejected', '设计评估预算已耗尽，不自动批准');
+      const grants = await this.grants(dir);
+      const limit = scope.data.budget.max_review_rounds + grants.reduce((n, g) => n + g.additional_rounds, 0);
+      if (attempts.length >= limit) throw new WorkflowError('review-rejected', '设计评估预算已耗尽，不自动批准');
       const last = attempts.at(-1), previous = last?.review_ref ? await this.store.load(last.review_ref) as Artifact<'design-review'> : undefined;
       if (previous?.data.decision === 'blocked') throw new WorkflowError('review-rejected', '上一轮已阻塞，需补充事实或明确新的任务范围');
       const round = attempts.length + 1, contextId = randomUUID(), reviewId = `design-${contextId}`;
