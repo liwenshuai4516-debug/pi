@@ -22,7 +22,7 @@ export const assessmentCheckSchema = object({ rule: Type.String({ pattern: '^D(?
 export const resultCheckSchema = object({ ...assessmentCheckSchema.properties,
   rule: Type.String({ pattern: '^R[1-6]$' }) });
 const assessment = {
-  subject_ref: fileRefSchema, subject_sha256: digest, round: Type.Integer({ minimum: 1, maximum: 3 }),
+  subject_ref: fileRefSchema, subject_sha256: digest, round: Type.Integer({ minimum: 1 }),
   decision: enumOf(['approved', 'revise', 'blocked']), rules_version: Type.String({ minLength: 1 }),
   reviewer, checked_rules: Type.Array(Type.String({ pattern: '^(D(?:10|[1-9])|R[1-6])$' })), issues: Type.Array(issue), raw_ref: fileRefSchema,
   checks: Type.Optional(Type.Array(assessmentCheckSchema)), improvement: Type.Optional(enumOf(['first', 'improved', 'none'])),

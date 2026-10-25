@@ -41,3 +41,15 @@ test('renewal rejects pending requests and cannot approve a candidate or move lo
  try{await assert.rejects(f.service.renewBudget(f.taskRef,f.assetRef,{authorization_id:'pending-grant',additional_rounds:1,reason:'No unknown replay'},async()=>true),/执行|不明/);}finally{resolve();await pending;}
  assert.equal((await f.store.load(f.taskRef)).data.stage,'design-review');
 });
+
+
+test('fourth review after explicit host renewal registers a real validated response without resetting round',async t=>{
+ const f=await setup(t);
+ for(let n=1;n<=3;n++)await assert.rejects(f.service.assess(f.taskRef,f.assetRef,'old-error-'+n,async()=>{throw new Error('controlled error');}),/评估调用失败/);
+ await f.service.renewBudget(f.taskRef,f.assetRef,{authorization_id:'fourth-response',additional_rounds:1,reason:'Human explicitly permits one extra review'},async()=>true);
+ const reviewed=await f.service.assess(f.taskRef,f.assetRef,'fourth-response',response);
+ assert.equal(reviewed.round,4);assert.equal(reviewed.decision,'approved');
+ const artifact=await f.store.load(reviewed.review_ref);assert.equal(artifact.data.round,4);
+ await assert.rejects(f.service.gate(f.assetRef,reviewed.review_ref),/运行就绪/);
+ await assert.rejects(f.service.assess(f.taskRef,f.assetRef,'fifth-rejected',response),/预算已耗尽/);
+});
