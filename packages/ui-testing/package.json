@@ -1,6 +1,6 @@
 {
   "name": "pi-ui-testing",
-  "version": "0.1.7",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "description": "Pi UI 测试工作流的项目规则、产物契约与必要适配",

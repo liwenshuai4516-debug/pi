@@ -68,12 +68,48 @@ export class PrivateEvidence {
     if (!value || typeof value !== 'object') return value;
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [this.text(key), this.redact(item)]));
   }
+  private credentials(value: any) {
+    if (!value || typeof value !== 'object') return;
+    const header = (name: string, content: unknown) => {
+      if (typeof content !== 'string' || !/^(cookie|set-cookie|authorization|proxy-authorization)$/i.test(name)) return;
+      const values = [content];
+      if (/authorization$/i.test(name)) values.push(content.replace(/^(Bearer|Basic)\s+/i, ''));
+      else {
+        const cookies = /^set-cookie$/i.test(name) ? content.split(/,(?=\s*[^=;,\s]+=)/) : content.split(';');
+        for (const cookie of cookies) {
+          const match = cookie.trim().match(/^[^=;\s]+=([^;]*)/);
+          if (match) values.push(match[1]);
+        }
+      }
+      for (const token of values.filter(Boolean))
+        for (const variant of variants(token)) if (!this.secrets.includes(variant)) this.secrets.push(variant);
+      this.secrets.sort((a, b) => b.length - a.length);
+    };
+    // 从私有 trace 的标准认证头收集轮换值，不把响应正文当凭据词典。
+    if (typeof value.name === 'string') header(value.name, value.value);
+    for (const [key, item] of Object.entries(value)) {
+      header(key, item);
+      this.credentials(item);
+    }
+  }
+  private async discoverCredentials(path: string) {
+    for (const entry of await readdir(path, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) throw new Error('private trace symlink');
+      if (entry.isDirectory()) await this.discoverCredentials(join(path, entry.name));
+      else if (entry.isFile() && entry.name === 'trace.zip') await this.trace(await readFile(join(path, entry.name)), true);
+    }
+  }
   async process<T>(result: T): Promise<T> {
     try { await writeFile(join(this.directory, 'process.json'), json(result), { mode: 0o600 }); }
     catch { throw new WorkflowError('insufficient-evidence', '原始私密进程记录未能保存；执行结果未确认，不自动重放'); }
+    try { await this.discoverCredentials(join(this.directory, 'output')); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        throw new WorkflowError('insufficient-evidence', '私密认证头无法核验；原始捕获保留，不发布进程输出或自动重放');
+    }
     return this.redact(result);
   }
-  private async trace(bytes: Buffer) {
+  private async trace(bytes: Buffer, discoverOnly = false) {
     const projectRequire = createRequire(join(this.root, 'package.json'));
     const require = createRequire(projectRequire.resolve('playwright/package.json'));
     if (require('playwright-core/package.json').version !== '1.62.1')
@@ -106,7 +142,11 @@ export class PrivateEvidence {
               parts.push(chunk);
             }
             const lines = Buffer.concat(parts).toString('utf8').split('\n').filter(Boolean)
-              .map(line => JSON.stringify(this.redact(JSON.parse(line))));
+              .map(line => {
+                const value = JSON.parse(line);
+                if (discoverOnly) this.credentials(value);
+                return JSON.stringify(discoverOnly ? null : this.redact(value));
+              });
             output.addBuffer(Buffer.from(lines.join('\n') + '\n'), this.text(entry.fileName));
             input.readEntry();
           } catch (error) { reject(error); }

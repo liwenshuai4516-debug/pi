@@ -120,7 +120,7 @@ export class UiRunService {
         `uiEnvironment:${JSON.stringify(environment)},uiProjectRoot:${JSON.stringify(root)},` +
         `uiOwner:${JSON.stringify({ task_id: input.task_id, kind: 'run', id: runId })},` +
         `storageState:${environment.auth.kind === 'none' ? 'undefined' : `process.env[${JSON.stringify(environment.auth.reference)}]`},` +
-        `headless:true,trace:'retain-on-failure',screenshot:'only-on-failure'}};\n`);
+        `headless:true,trace:${environment.auth.kind === 'none' ? "'retain-on-failure'" : "'on'"},screenshot:'only-on-failure'}};\n`);
       const args = [cli, 'test', '--config', join(root, configRef.path)];
       const processToken = sha256(inputKey(input));
       const run: Artifact<'run'> = { schema_version: '1.0', kind: 'run', id: runId, created_at: new Date().toISOString(), data: {

@@ -86,3 +86,48 @@ test('redaction collision cannot rewrite native failure or pass status', async t
   await assert.rejects(capture.publish(new ArtifactStore(f.root)), /不推断测试结果/);
   await assert.rejects(readFile(join(f.root, 'qa/ui/runs/private/native.json')), { code: 'ENOENT' });
 });
+
+test('runtime credential headers are collected before process, context and trace publication', async t => {
+  const f = await fixture(t), capture = await f.create(), store = new ArtifactStore(f.root);
+  await symlink(join(process.cwd(), 'node_modules'), join(f.root, 'node_modules'), 'dir');
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  const { yazl } = require('playwright-core/lib/utilsBundle');
+  const rotated = 'runtime+/rotated-credential==', bearer = 'runtime-bearer-credential';
+  const zip = new yazl.ZipFile(), chunks = [];
+  const finished = new Promise((resolve, reject) => {
+    zip.outputStream.on('data', c => chunks.push(c));
+    zip.outputStream.on('end', () => resolve(Buffer.concat(chunks)));
+    zip.outputStream.on('error', reject);
+  });
+  // Reflection precedes the network entry; publication must discover all credentials first.
+  zip.addBuffer(Buffer.from(JSON.stringify({ type: 'stdout', text: rotated }) + '\n'), '0.trace');
+  zip.addBuffer(Buffer.from(JSON.stringify({ response: { headers: [
+    { name: 'Set-Cookie', value: `session=${rotated}; Path=/; HttpOnly; Expires=Wed, 21 Oct 2030 07:28:00 GMT` },
+  ] }, request: { headers: { Authorization: `Bearer ${bearer}`, Cookie: `session=${rotated}; initial=${f.secret}` } } }) + '\n'), '0.network');
+  zip.end();
+  const output = join(capture.directory, 'output', 'attempt');
+  await mkdir(output, { recursive: true });
+  const trace = join(output, 'trace.zip'), context = join(output, 'error-context.md');
+  await writeFile(trace, await finished);
+  await writeFile(context, rotated);
+  const raw = { code: 1, stdout: `${rotated}\n${encodeURIComponent(rotated)}\n${Buffer.from(rotated).toString('base64')}\n${bearer}` };
+  const sanitized = await capture.process(raw);
+  assert.equal(sanitized.code, 1);
+  for (const token of [rotated, encodeURIComponent(rotated), Buffer.from(rotated).toString('base64'), bearer])
+    assert.equal(sanitized.stdout.includes(token), false);
+  assert.deepEqual(JSON.parse(await readFile(join(capture.directory, 'process.json'), 'utf8')), raw);
+  await writeFile(join(capture.directory, 'native.json'), JSON.stringify({ suites: [{ status: 'failed', attachments: [
+    { name: 'trace', path: trace }, { name: 'error-context', path: context },
+    { name: 'note', contentType: 'text/plain', body: Buffer.from(rotated).toString('base64') },
+  ] }] }));
+  await capture.publish(store);
+  const report = JSON.parse(await readFile(join(f.root, 'qa/ui/runs/private/native.json'), 'utf8'));
+  assert.equal(report.suites[0].status, 'failed');
+  const attachments = report.suites[0].attachments;
+  assert.equal(await readFile(attachments.find(a => a.name === 'error-context').path, 'utf8'), '[PRIVATE]');
+  assert.equal(Buffer.from(attachments.find(a => a.name === 'note').body, 'base64').toString(), '[PRIVATE]');
+  // A corrupt trace must not fall back to publishing uninspected process text.
+  await writeFile(trace, 'not a ZIP');
+  await assert.rejects(capture.process(raw), /不发布进程输出/);
+});

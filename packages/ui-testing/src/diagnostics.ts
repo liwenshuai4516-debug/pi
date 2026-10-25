@@ -184,7 +184,7 @@ export async function runDesignDiagnostics(root: string, assetRef: FileRef, revi
         projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
       })},${capture ? privateCaptureConfig : ''}grep:undefined,grepInvert:undefined,shard:null,use:{...base.use,baseURL:${JSON.stringify(env.base_url)},` +
       `uiEnvironment:${JSON.stringify(env)},uiProjectRoot:${JSON.stringify(root)},uiOwner:${JSON.stringify({ task_id: id, kind: 'recording', id })},` +
-      `storageState:${env.auth.kind === 'none' ? 'undefined' : `process.env[${JSON.stringify(env.auth.reference)}]`},headless:true,trace:'retain-on-failure'}};\n`);
+      `storageState:${env.auth.kind === 'none' ? 'undefined' : `process.env[${JSON.stringify(env.auth.reference)}]`},headless:true,trace:${capture ? "'on'" : "'retain-on-failure'"}}};\n`);
     const args = [cli, 'test', '--config', join(root, configRef.path)];
     const processToken = randomUUID();
     const intentRef = await store.putFile(`${directory}/launch-intent.json`, json({ command: process.execPath, args,
