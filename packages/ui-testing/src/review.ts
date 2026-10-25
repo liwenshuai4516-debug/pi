@@ -115,7 +115,7 @@ export class DesignReviewService {
       const grants = await this.grants(dir);
       const limit = scope.data.budget.max_review_rounds + grants.reduce((n, g) => n + g.additional_rounds, 0);
       if (attempts.length >= limit) throw new WorkflowError('review-rejected', '设计评估预算已耗尽，不自动批准');
-      const last = attempts.at(-1), previous = last?.review_ref ? await this.store.load(last.review_ref) as Artifact<'design-review'> : undefined;
+      const last = [...attempts].reverse().find(a => a.state === 'completed' && a.review_ref), previous = last?.review_ref ? await this.store.load(last.review_ref) as Artifact<'design-review'> : undefined;
       if (previous?.data.decision === 'blocked') throw new WorkflowError('review-rejected', '上一轮已阻塞，需补充事实或明确新的任务范围');
       const round = attempts.length + 1, contextId = randomUUID(), reviewId = `design-${contextId}`;
       const base = `${posix.dirname(assetRef.path)}/reviews/${reviewId}`;

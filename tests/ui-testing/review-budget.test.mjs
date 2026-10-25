@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setup, response } from '../support/ui-design-fixture.mjs';
+import { setup, response, decision } from '../support/ui-design-fixture.mjs';
 import { DesignReviewService } from '../../packages/ui-testing/dist/index.js';
 
 test('host renewal preserves same-task failed attempts and adds only explicitly authorized rounds', async t => {
@@ -52,4 +52,17 @@ test('fourth review after explicit host renewal registers a real validated respo
  const artifact=await f.store.load(reviewed.review_ref);assert.equal(artifact.data.round,4);
  await assert.rejects(f.service.gate(f.assetRef,reviewed.review_ref),/运行就绪/);
  await assert.rejects(f.service.assess(f.taskRef,f.assetRef,'fifth-rejected',response),/预算已耗尽/);
+});
+
+
+test('an intervening provider error retains latest completed review and improvement lineage',async t=>{
+ const f=await setup(t);
+ const first=await f.service.assess(f.taskRef,f.assetRef,'needs-revision',async input=>({raw:JSON.stringify(decision(input,'revise')),provider:'control',model:'control'}));
+ const revised=await f.make('v2');
+ await assert.rejects(f.service.assess(f.taskRef,revised.assetRef,'provider-error',async()=>{throw new Error('controlled provider failure');}),/评估调用失败/);
+ const next=await f.service.assess(f.taskRef,revised.assetRef,'improved',async input=>{
+  assert.equal(input.previous.id,(await f.store.load(first.review_ref)).id);
+  return response(input);
+ });
+ const saved=await f.store.load(next.review_ref);assert.equal(saved.data.improvement,'improved');assert.deepEqual(saved.data.previous_review_ref,first.review_ref);
 });
