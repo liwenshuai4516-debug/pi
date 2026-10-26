@@ -51,12 +51,7 @@ export class PrivateEvidence {
       if (within(root, authority) || within(root, statePath))
         throw new WorkflowError('precondition', '认证文件和原始私密证据必须位于工作区外');
       const state = JSON.parse(await readFile(statePath, 'utf8'));
-      const values: string[] = [statePath, process.env[environment.auth.reference!]!,
-        ...state.cookies.flatMap((c: { value: string }) => storageSecrets(c.value)),
-        ...state.origins.flatMap((o: { localStorage?: { value: string }[] }) => (o.localStorage ?? []).flatMap(v => storageSecrets(v.value)))];
-      const secrets = [...new Set(values.filter(v => typeof v === 'string' && v.length).flatMap(value =>
-        variants(value)))]
-        .sort((a, b) => b.length - a.length);
+      const secrets = [...new Set([statePath, process.env[environment.auth.reference!]!].flatMap(variants))];
       const base = join(authority, 'private-evidence');
       await mkdir(base, { recursive: true, mode: 0o700 });
       const info = await lstat(base);
@@ -64,11 +59,40 @@ export class PrivateEvidence {
         throw new WorkflowError('precondition', '私密证据目录必须位于工作区外且仅当前用户可访问');
       const directory = join(base, randomUUID());
       await mkdir(directory, { mode: 0o700 });
-      return new PrivateEvidence(root, directory, publicBase, secrets);
+      const capture = new PrivateEvidence(root, directory, publicBase, secrets);
+      capture.observeStorageState(state);
+      return capture;
     } catch (error) {
       if (error instanceof WorkflowError) throw error;
       throw new WorkflowError('precondition', '私密证据目录或认证文件不可用；未启动测试进程');
     }
+  }
+  /** 宿主从实际浏览器私有采集；先完整校验再累积，删除/轮换不遗忘旧值。 */
+  observeStorageState(state: unknown) {
+    const values: string[] = [];
+    try {
+      if (!state || typeof state !== 'object') throw new Error();
+      const { cookies, origins } = state as { cookies: unknown; origins: unknown };
+      if (!Array.isArray(cookies) || !Array.isArray(origins)) throw new Error();
+      const collect = (items: unknown[]) => {
+        for (const item of items) {
+          if (!item || typeof item !== 'object' || typeof (item as { value?: unknown }).value !== 'string') throw new Error();
+          values.push(...storageSecrets((item as { value: string }).value));
+        }
+      };
+      collect(cookies);
+      for (const origin of origins) {
+        if (!origin || typeof origin !== 'object') throw new Error();
+        const { localStorage } = origin as { localStorage?: unknown };
+        if (localStorage !== undefined && !Array.isArray(localStorage)) throw new Error();
+        collect(localStorage ?? []);
+      }
+    } catch {
+      throw new WorkflowError('insufficient-evidence', '私密存储状态无法核验；不发布原始输出或自动重放');
+    }
+    for (const value of values.filter(Boolean))
+      for (const variant of variants(value)) if (!this.secrets.includes(variant)) this.secrets.push(variant);
+    this.secrets.sort((a, b) => b.length - a.length);
   }
   text(value: string) {
     for (const [source, target] of this.publishedPaths) value = value.split(source).join(target);

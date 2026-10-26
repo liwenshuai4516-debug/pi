@@ -163,3 +163,23 @@ test('JSON storage string leaves stay private when reflected independently of th
   for (const value of forms) assert.equal(published.includes(value), false);
   assert.equal(Buffer.from(attachments.find(a => a.name === 'note').body, 'base64').toString(), '[PRIVATE]');
 });
+
+test('runtime storage observations retain new and removed values without trusting malformed state', async t => {
+  const f = await fixture(t), capture = await f.create();
+  const token = 'runtime-storage+/nested-token==', cookie = 'runtime-storage-cookie';
+  const raw = `${token} ${encodeURIComponent(token)} ${Buffer.from(token).toString('base64')} ${cookie}`;
+  assert.ok(capture.text(raw).includes(token));
+  capture.observeStorageState({ cookies: [{ value: cookie }], origins: [{ origin: 'https://fixture.invalid', localStorage: [
+    { name: 'session', value: JSON.stringify({ credentials: [{ token }] }) },
+  ] }] });
+  capture.observeStorageState({ cookies: [], origins: [] });
+  assert.equal(capture.text(raw).includes(token), false);
+  assert.equal(capture.text(raw).includes(encodeURIComponent(token)), false);
+  assert.equal(capture.text(raw).includes(Buffer.from(token).toString('base64')), false);
+  assert.equal(capture.text(raw).includes(cookie), false);
+  assert.equal(capture.text('ordinary business text'), 'ordinary business text');
+  for (const bad of [null, {}, { cookies: [], origins: [null] }, { cookies: [{ value: 'must-not-be-added' }], origins: [{ localStorage: [{ value: 42 }] }] }])
+    assert.throws(() => capture.observeStorageState(bad), error => /存储状态无法核验/.test(error.message) && !error.message.includes('must-not-be-added'));
+  assert.equal(capture.text('must-not-be-added'), 'must-not-be-added');
+  assert.equal(capture.text(f.secret), '[PRIVATE]');
+});
