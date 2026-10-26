@@ -414,3 +414,40 @@ test(
     }
   },
 );
+
+test(
+  'host private capture root may contain the isolated mirror but captured files stay outside that mirror',
+  { timeout: 30000 },
+  async (t) => {
+    const f = await fixture(t);
+    const mirror = join(f.privacy.directory, 'mirror');
+    await mkdir(mirror, { mode: 0o700 });
+    await writeFile(
+      f.statePath,
+      JSON.stringify({
+        ...f.state,
+        pi_ui_private: { ...f.state.pi_ui_private, workspace: mirror },
+      }),
+    );
+    const b = await browserFixture(t, f);
+    const capture = await native.installPrivateRecordingCapture(
+      b.page,
+      f.environment,
+      mirror,
+      f.privacy.directory,
+    );
+    await b.page.goto(origin + '/');
+    assert.equal(await b.page.__pi_private_recording_capture(1), undefined);
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(
+          join(f.privacy.directory, 'output/recording/capture-1/complete.json'),
+          'utf8',
+        ),
+      ),
+      { version: 1, ordinal: 1 },
+    );
+    await assert.rejects(lstat(join(mirror, 'output')), { code: 'ENOENT' });
+    await capture.dispose();
+  },
+);

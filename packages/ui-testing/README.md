@@ -264,3 +264,5 @@ audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据�
 宿主固定代码调用 page 上的 `__pi_private_recording_capture(ordinal)`（1–8 顺序编号）；函数不返回路径或原文，在私有 `output/recording/capture-N/` 保存 0600 的 storage.json、trace.zip 和最后写入的 complete.json。复用 Playwright storageState/tracing 与原有 CDP 存储事件，原始事件由包内单一实现 `private-recording-storage-events.ts` 维护。并发/重复/越界编号、失效认证、不安全目录、frame/page 历史及采集失败会拒绝后续采集；旧文件不覆盖，dispose 解除观察并关闭自有 trace。
 
 这不是模型工具，不授予浏览器执行或设计批准。消费宿主仍须在父响应交 SDK 前核验完成标记、事件/状态/trace、调用原生 PrivateEvidence 过滤，隐藏媒体并校验 writer 原文后独占发布。未支持多 frame/其他 target、任意依赖闭包、文件系统竞态和完整重连续录，不因 fixture 可用宣称产品私密 record 或真实 PMS 全链已完成。测试：`tests/ui-testing/recording-capture.test.mjs`；使用合成身份与真实 Chromium/CLI，不调用模型。
+
+0.1.17修正宿主私有根包含隔离mirror时的初始化误拒：校验实际捕获路径在当前mirror外，保留0700、canonical及非symlink要求，不把“根包含mirror”误作捕获泄露。初始化错误只输出固定检查阶段名，不附原始异常。宿主在启动runner前准备0700的output目录；fixture与CLI必须使用同一Playwright实例，版本相同但两份物理安装也不兼容。消费项目保留两类误配和旧版误拒证据，未修改个人依赖。

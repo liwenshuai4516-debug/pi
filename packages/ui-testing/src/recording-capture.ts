@@ -12,14 +12,16 @@ import {
   readPrivateStorageEvents,
 } from './private-recording-storage-events.js';
 
-const blocked = () =>
+const blocked = (check?: string) =>
   new Error(
-    'Private recording capture unavailable; withhold output and do not replay',
+    'Private recording capture unavailable; withhold output and do not replay' +
+      (check ? ' (' + check + ')' : ''),
   );
 const outside = (root: string, path: string) => {
   const rel = relative(root, path);
   return isAbsolute(rel) || rel === '..' || rel.startsWith('../');
 };
+// 私有根可包含宿主管理的隔离 mirror；每个捕获目录仍须在 mirror 外。
 async function privateDirectory(path: string, workspace: string) {
   const info = await lstat(path);
   if (
@@ -28,8 +30,7 @@ async function privateDirectory(path: string, workspace: string) {
     info.isSymbolicLink() ||
     info.mode & 0o077 ||
     (await realpath(path)) !== path ||
-    !outside(workspace, path) ||
-    !outside(path, workspace)
+    !outside(workspace, path)
   )
     throw blocked();
 }
@@ -48,6 +49,7 @@ export async function installPrivateRecordingCapture(
   let observer: Awaited<ReturnType<typeof observePrivateStorage>> | undefined;
   let tracing = false;
   const config = validateEnvironment(input);
+  let preparation = 'authentication';
   const dispose = async () => {
     if (disposed) return;
     disposed = true;
@@ -67,6 +69,7 @@ export async function installPrivateRecordingCapture(
     )
       throw blocked();
     await authState(config, workspace);
+    preparation = 'private-directory';
     await privateDirectory(directory, workspace);
     const output = join(directory, 'output');
     await mkdir(output, { mode: 0o700, recursive: true });
@@ -74,10 +77,12 @@ export async function installPrivateRecordingCapture(
     const captureRoot = join(output, 'recording');
     // mkdir 无 recursive：一次新 context 不能覆盖旧捕获；重连必须由宿主核对归属。
     await mkdir(captureRoot, { mode: 0o700 });
+    preparation = 'storage-observer';
     observer = await observePrivateStorage(
       page,
       join(captureRoot, 'storage-events.ndjson'),
     );
+    preparation = 'trace-start';
     await page
       .context()
       .tracing.start({ screenshots: true, snapshots: true, sources: false });
@@ -150,6 +155,6 @@ export async function installPrivateRecordingCapture(
     return { capture, dispose };
   } catch {
     await dispose();
-    throw blocked();
+    throw blocked(preparation);
   }
 }
