@@ -43,9 +43,12 @@ export async function authState(config: UiEnvironment, projectRoot = process.cwd
     if (config.auth.reference!.startsWith('PI_UI_DATA_SPACE_') || state.pi_ui_private) {
       const metadata = state.pi_ui_private, root = await realpath(projectRoot), file = await realpath(path);
       const rel = relative(root, file), info = await lstat(path), directory = await lstat(dirname(file));
+      const base = new URL(metadata?.baseUrl), target = new URL(config.base_url);
       // 数据空间引用在消费时重验作用域/有效期；旧文件不能成为永久登录证明。
       if (!metadata || metadata.version !== managedAuthStateVersion || metadata.reference !== config.auth.reference ||
-          metadata.workspace !== root || metadata.origin !== new URL(config.base_url).origin ||
+          metadata.workspace !== root || metadata.origin !== target.origin || base.origin !== target.origin ||
+          base.username || base.password || base.search || base.hash ||
+          !(target.href === base.href || target.href.startsWith(base.href.replace(/\/+$/, '') + '/')) ||
           !Number.isFinite(Date.parse(metadata.expiresAt)) || Date.parse(metadata.expiresAt) <= Date.now() ||
           (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../')) ||
           !info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) || (directory.mode & 0o077) ||

@@ -198,12 +198,13 @@ test('managed private auth binds workspace, origin and expiry before browser sta
   t.after(() => { delete process.env[reference]; });
   const config = { base_url: 'http://127.0.0.1:18999/app', auth: { kind: 'storage-state-env', reference } };
   const state = { cookies: [], origins: [{ origin: 'http://127.0.0.1:18999', localStorage: [{ name: 'token', value: 'synthetic-managed-token' }] }],
-    pi_ui_private: { version: 1, reference, workspace: await realpath(root), origin: 'http://127.0.0.1:18999', expiresAt: new Date(Date.now() + 60000).toISOString() } };
+    pi_ui_private: { version: 1, reference, workspace: await realpath(root), origin: 'http://127.0.0.1:18999', baseUrl: 'http://127.0.0.1:18999/app', expiresAt: new Date(Date.now() + 60000).toISOString() } };
   const save = async value => writeFile(statePath, JSON.stringify(value), { mode: 0o600 });
   await save(state);
   assert.equal(await authState(config, root), statePath);
   await assert.rejects(authState(config, foreign), /缺失或无效/);
   await assert.rejects(authState({ ...config, base_url: 'http://127.0.0.1:19000/app' }, root), /缺失或无效/);
+  await assert.rejects(authState({ ...config, base_url: 'http://127.0.0.1:18999/application' }, root), /缺失或无效/);
   await save({ ...state, pi_ui_private: { ...state.pi_ui_private, expiresAt: new Date(Date.now() - 1).toISOString() } });
   await assert.rejects(authState(config, root), /缺失或无效/);
   await save({ ...state, pi_ui_private: { ...state.pi_ui_private, version: 2 } });
