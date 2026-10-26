@@ -13,10 +13,10 @@ async function attach(info: TestInfo, name: string, value: unknown) {
 export const test = base.extend<UiFixtures & UiOptions>({
   uiEnvironment: [undefined, { option: true }], uiOwner: [undefined, { option: true }],
   uiProjectRoot: [process.cwd(), { option: true }],
-  storageState: async ({ uiEnvironment }, use, info) => {
+  storageState: async ({ uiEnvironment, uiProjectRoot }, use, info) => {
     if (!uiEnvironment) throw new WorkflowError('precondition', '缺少 UI 环境配置');
     let state: string | undefined;
-    try { state = await authState(validateEnvironment(uiEnvironment)); }
+    try { state = await authState(validateEnvironment(uiEnvironment), uiProjectRoot); }
     catch (error) {
       await attach(info, 'ui-preflight', { status: 'blocked', category: 'precondition', check: 'auth-reference' });
       throw error;

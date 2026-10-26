@@ -45,7 +45,7 @@ export class PrivateEvidence {
     try {
       if (!authority) throw new WorkflowError('precondition', '私密证据需要宿主私有目录，不能写入工作区');
       root = await realpath(root);
-      const statePath = await realpath((await authState(environment))!);
+      const statePath = await realpath((await authState(environment, root))!);
       await mkdir(authority, { recursive: true, mode: 0o700 });
       authority = await realpath(authority);
       if (within(root, authority) || within(root, statePath))

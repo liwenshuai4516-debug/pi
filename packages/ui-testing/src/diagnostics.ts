@@ -41,7 +41,7 @@ export async function preflightEnvironment(root: string, env: UiEnvironment, tim
   const { chromium, expect } = createRequire(join(root, 'package.json'))('playwright/test') as typeof import('@playwright/test');
   let phase = 'auth-reference', passed = false;
   try {
-    const storageState = await authState(env);
+    const storageState = await authState(env, root);
     phase = 'browser';
     const browser = await chromium.launch({ headless: true, timeout });
     const abort = () => { void browser.close().catch(() => {}); };

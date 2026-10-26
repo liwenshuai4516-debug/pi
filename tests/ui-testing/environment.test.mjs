@@ -183,3 +183,31 @@ test('UI-04: private storage state authenticates, expired state blocks before bu
   report=JSON.parse(await readFile(join(fixture.project,'results.json'),'utf8'));
   assert.equal(attachment(testEntries(report)[0],'ui-preflight').reason,'identity-mismatch-or-session-expired');
 });
+
+test('managed private auth binds workspace, origin and expiry before browser startup', async t => {
+  const { mkdtemp, mkdir, writeFile, rm, realpath } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { authState } = await import('../../packages/ui-testing/dist/environment.js');
+  const base = await mkdtemp(join(tmpdir(), 'ui-managed-auth-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = join(base, 'project'), foreign = join(base, 'other'), statePath = join(base, 'private.json');
+  await mkdir(root); await mkdir(foreign);
+  const reference = 'PI_UI_DATA_SPACE_UNIT_TEST';
+  assert.equal(process.env[reference], undefined);
+  process.env[reference] = statePath;
+  t.after(() => { delete process.env[reference]; });
+  const config = { base_url: 'http://127.0.0.1:18999/app', auth: { kind: 'storage-state-env', reference } };
+  const state = { cookies: [], origins: [{ origin: 'http://127.0.0.1:18999', localStorage: [{ name: 'token', value: 'synthetic-managed-token' }] }],
+    pi_ui_private: { version: 1, reference, workspace: await realpath(root), origin: 'http://127.0.0.1:18999', expiresAt: new Date(Date.now() + 60000).toISOString() } };
+  const save = async value => writeFile(statePath, JSON.stringify(value), { mode: 0o600 });
+  await save(state);
+  assert.equal(await authState(config, root), statePath);
+  await assert.rejects(authState(config, foreign), /缺失或无效/);
+  await assert.rejects(authState({ ...config, base_url: 'http://127.0.0.1:19000/app' }, root), /缺失或无效/);
+  await save({ ...state, pi_ui_private: { ...state.pi_ui_private, expiresAt: new Date(Date.now() - 1).toISOString() } });
+  await assert.rejects(authState(config, root), /缺失或无效/);
+  await save({ ...state, pi_ui_private: { ...state.pi_ui_private, version: 2 } });
+  await assert.rejects(authState(config, root), /缺失或无效/);
+  await save({ cookies: [], origins: [] });
+  await assert.rejects(authState(config, root), /缺失或无效/);
+});

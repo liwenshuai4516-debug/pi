@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath, lstat } from 'node:fs/promises';
+import { dirname, isAbsolute, relative } from 'node:path';
 import { Type, type Static } from 'typebox';
 import { Ajv } from 'ajv';
 import { ArtifactStore } from './store.js';
@@ -31,13 +32,25 @@ export function validateEnvironment(input: unknown): UiEnvironment {
 }
 
 /** 仅在执行进程中解析私有认证文件，不把文件路径及 cookies 写入普通资产。 */
-export async function authState(config: UiEnvironment): Promise<string | undefined> {
+export const managedAuthStateVersion = 1;
+export async function authState(config: UiEnvironment, projectRoot = process.cwd()): Promise<string | undefined> {
   if (config.auth.kind === 'none') return undefined;
   const path = process.env[config.auth.reference!];
   if (!path) throw new WorkflowError('precondition', '认证引用未配置');
   try {
     const state = JSON.parse(await readFile(path, 'utf8'));
     if (!Array.isArray(state.cookies) || !Array.isArray(state.origins)) throw new Error('invalid');
+    if (config.auth.reference!.startsWith('PI_UI_DATA_SPACE_') || state.pi_ui_private) {
+      const metadata = state.pi_ui_private, root = await realpath(projectRoot), file = await realpath(path);
+      const rel = relative(root, file), info = await lstat(path), directory = await lstat(dirname(file));
+      // 数据空间引用在消费时重验作用域/有效期；旧文件不能成为永久登录证明。
+      if (!metadata || metadata.version !== managedAuthStateVersion || metadata.reference !== config.auth.reference ||
+          metadata.workspace !== root || metadata.origin !== new URL(config.base_url).origin ||
+          !Number.isFinite(Date.parse(metadata.expiresAt)) || Date.parse(metadata.expiresAt) <= Date.now() ||
+          (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../')) ||
+          !info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) || (directory.mode & 0o077) ||
+          state.cookies.length || state.origins.length !== 1 || state.origins[0].origin !== metadata.origin) throw new Error('invalid');
+    }
   } catch { throw new WorkflowError('precondition', '认证状态文件缺失或无效'); }
   return path;
 }
