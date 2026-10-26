@@ -131,3 +131,36 @@ test('runtime credential headers are collected before process, context and trace
   await writeFile(trace, 'not a ZIP');
   await assert.rejects(capture.process(raw), /不发布进程输出/);
 });
+
+test('JSON storage string leaves stay private when reflected independently of their envelope', async t => {
+  const f = await fixture(t);
+  const token = 'json+/nested-token==', encoded = 'json-escaped-"token\\value';
+  await writeFile(f.state, JSON.stringify({ cookies: [], origins: [{ origin: 'https://fixture.invalid', localStorage: [
+    { name: 'session', value: JSON.stringify({ session: { credentials: [{ token }, { token: encoded }] } }) },
+    { name: 'quoted-token', value: JSON.stringify('json-quoted-secret') },
+    { name: 'raw-token', value: 'not-json+/raw-secret' },
+  ] }] }), { mode: 0o600 });
+  const capture = await f.create();
+  const values = [token, encoded, 'json-quoted-secret', 'not-json+/raw-secret'];
+  const forms = values.flatMap(value => [value, encodeURIComponent(value), JSON.stringify(value).slice(1, -1),
+    Buffer.from(value).toString('base64'), Buffer.from(value).toString('base64url')]);
+  const raw = { code: 1, stdout: forms.join('\n') }, sanitized = await capture.process(raw);
+  assert.equal(sanitized.code, 1);
+  for (const value of forms) assert.equal(sanitized.stdout.includes(value), false);
+  assert.deepEqual(JSON.parse(await readFile(join(capture.directory, 'process.json'), 'utf8')), raw);
+  const output = join(capture.directory, 'output');
+  await mkdir(output);
+  const context = join(output, 'error-context.md');
+  await writeFile(context, forms.join('\n'));
+  await writeFile(join(capture.directory, 'native.json'), JSON.stringify({ suites: [{ status: 'failed', attachments: [
+    { name: 'error-context', path: context },
+    { name: 'note', contentType: 'text/plain', body: Buffer.from(token).toString('base64') },
+  ] }] }));
+  await capture.publish(new ArtifactStore(f.root));
+  const report = JSON.parse(await readFile(join(f.root, 'qa/ui/runs/private/native.json'), 'utf8'));
+  assert.equal(report.suites[0].status, 'failed');
+  const attachments = report.suites[0].attachments;
+  const published = await readFile(attachments.find(a => a.name === 'error-context').path, 'utf8');
+  for (const value of forms) assert.equal(published.includes(value), false);
+  assert.equal(Buffer.from(attachments.find(a => a.name === 'note').body, 'base64').toString(), '[PRIVATE]');
+});

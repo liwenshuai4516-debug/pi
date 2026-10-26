@@ -9,6 +9,20 @@ import { sha256, WorkflowError } from './validation.js';
 const json = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
 const variants = (value: string) => [value, encodeURI(value), encodeURIComponent(value),
   JSON.stringify(value).slice(1, -1), Buffer.from(value).toString('base64'), Buffer.from(value).toString('base64url')];
+// storageState 常把认证对象存为 JSON 字符串；浏览器可单独反射其中的字符串值。
+// 只解码存储项的一层 JSON，不猜测任意编码或将响应正文当秘密字典。
+const storageSecrets = (value: string): string[] => {
+  const values = [value];
+  let parsed: unknown;
+  try { parsed = JSON.parse(value); } catch { return values; }
+  const pending: unknown[] = [parsed];
+  while (pending.length) {
+    const item = pending.pop();
+    if (typeof item === 'string') values.push(item);
+    else if (item && typeof item === 'object') pending.push(...Object.values(item));
+  }
+  return values;
+};
 const within = (root: string, path: string) => {
   const rel = relative(root, path);
   return !isAbsolute(rel) && rel !== '..' && !rel.startsWith('../');
@@ -38,8 +52,8 @@ export class PrivateEvidence {
         throw new WorkflowError('precondition', '认证文件和原始私密证据必须位于工作区外');
       const state = JSON.parse(await readFile(statePath, 'utf8'));
       const values: string[] = [statePath, process.env[environment.auth.reference!]!,
-        ...state.cookies.map((c: { value: string }) => c.value),
-        ...state.origins.flatMap((o: { localStorage?: { value: string }[] }) => (o.localStorage ?? []).map(v => v.value))];
+        ...state.cookies.flatMap((c: { value: string }) => storageSecrets(c.value)),
+        ...state.origins.flatMap((o: { localStorage?: { value: string }[] }) => (o.localStorage ?? []).flatMap(v => storageSecrets(v.value)))];
       const secrets = [...new Set(values.filter(v => typeof v === 'string' && v.length).flatMap(value =>
         variants(value)))]
         .sort((a, b) => b.length - a.length);
