@@ -68,7 +68,7 @@ export class RecordingService {
       throw new WorkflowError('precondition', '私密录制须绑定同一范围、受管隔离身份及含 seed 的唯一输入集合');
     }
     await authState(environment, this.projectRoot);
-    return { environment, inputRefs: binding.input_refs };
+    return { environment, environmentRef: binding.environment_ref, inputRefs: binding.input_refs };
   }
   /** 宿主只从已核验原生会话取得引用，不从聊天或 MCP 参数猜测私有作用域。 */
   async privateContext(ref: FileRef) {

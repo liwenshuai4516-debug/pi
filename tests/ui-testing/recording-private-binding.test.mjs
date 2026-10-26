@@ -35,7 +35,7 @@ const okay=async()=>({content:[{type:'text',text:'synthetic'}]});
 
 test('private recording freezes public references and exposes a verified host context without secret/path',async t=>{
  const f=await fixture(t), ref=await f.service.start(f.config), context=await f.service.privateContext(ref);
- assert.deepEqual(context,{environment:f.environment,inputRefs:f.config.private_recording.input_refs});
+ assert.deepEqual(context,{environment:f.environment,environmentRef:f.config.private_recording.environment_ref,inputRefs:f.config.private_recording.input_refs});
  const bytes=await readFile(join(f.workspace,ref.path),'utf8');
  assert.equal(bytes.includes(f.secret),false);assert.equal(bytes.includes(f.statePath),false);
  assert.deepEqual(JSON.parse(bytes).private_recording,f.config.private_recording);
