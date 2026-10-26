@@ -7,6 +7,7 @@ import { Ajv } from 'ajv';
 import { ArtifactStore } from './store.js';
 import { assertPortablePath, sha256, verifyReferences, workspacePath, WorkflowError } from './validation.js';
 import { fileRefSchema, type Artifact, type FileRef } from './contracts.js';
+import { authState, validateEnvironment } from './environment.js';
 
 const id = Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' });
 export const recordingStartSchema = Type.Object({
@@ -17,6 +18,9 @@ export const recordingStartSchema = Type.Object({
   max_no_progress: Type.Integer({ minimum: 2, maximum: 10 }),
   // 仅声明可公开的合成测试输入；认证由 seed/私有 storageState 完成，不在录制动作中输入秘密。
   test_data: Type.Array(Type.String({ minLength: 1 })),
+  // 只冻结公开引用；宿主读取后准备私有副本，不能把认证内容写入会话。
+  private_recording: Type.Optional(Type.Object({ environment_ref: fileRefSchema,
+    input_refs: Type.Array(fileRefSchema, { minItems: 1, maxItems: 128 }) }, { additionalProperties: false })),
 }, { additionalProperties: false });
 export type RecordingStart = Static<typeof recordingStartSchema>;
 type Session = RecordingStart & { created_at: string; token: string };
@@ -51,6 +55,25 @@ export class RecordingService {
     await verifyReferences(this.projectRoot, input);
     return session;
   }
+  private async privateInput(input: RecordingStart) {
+    const binding = input.private_recording;
+    if (!binding) return undefined;
+    const scope = await this.store.load(input.scope_ref) as Artifact<'scope'>;
+    const environment = validateEnvironment((await this.jsonRef(binding.environment_ref.path)).value);
+    if (environment.environment_id !== scope.data.environment_id || environment.role !== scope.data.role ||
+        new URL(environment.base_url).href !== new URL(scope.data.base_url!).href || environment.isolation !== 'context' ||
+        environment.auth.kind !== 'storage-state-env' || !environment.auth.reference?.startsWith('PI_UI_DATA_SPACE_') ||
+        new Set(binding.input_refs.map(ref => ref.path)).size !== binding.input_refs.length ||
+        !binding.input_refs.some(ref => isDeepStrictEqual(ref, input.seed_ref))) {
+      throw new WorkflowError('precondition', '私密录制须绑定同一范围、受管隔离身份及含 seed 的唯一输入集合');
+    }
+    await authState(environment, this.projectRoot);
+    return { environment, inputRefs: binding.input_refs };
+  }
+  /** 宿主只从已核验原生会话取得引用，不从聊天或 MCP 参数猜测私有作用域。 */
+  async privateContext(ref: FileRef) {
+    return this.privateInput(await this.session(ref));
+  }
   async start(input: RecordingStart): Promise<FileRef> {
     if (!validStart(input)) throw new WorkflowError('invalid-input', ajv.errorsText(validStart.errors));
     assertPortablePath(input.output_file);
@@ -63,6 +86,7 @@ export class RecordingService {
     if (input.max_steps > (scope as Artifact<'scope'>).data.budget.max_tool_calls) throw new WorkflowError('precondition', '录制步数超过范围预算');
     if (!(scope as Artifact<'scope'>).data.base_url) throw new WorkflowError('precondition', '仅源码输入不能声称启动浏览器录制');
     await verifyReferences(this.projectRoot, input);
+    await this.privateInput(input);
     try { await access(join(this.projectRoot, input.output_file)); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -166,6 +190,8 @@ export class RecordingService {
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       }
       const request = { ...call, created_at: new Date().toISOString() };
+      // 过期/撤销后仍允许查询、结束和自有 context 清理，不再分派业务动作。
+      if (call.tool !== 'browser_close') await this.privateInput(session);
       const path = `${this.base(session.id)}/events/${call.operation_id}`;
       await this.store.putFile(`${path}/request.json`, emit(request));
       const remaining = call.tool === 'browser_close' ? 45000 : Math.max(1, session.max_duration_ms - (Date.now() - Date.parse(session.created_at)));
