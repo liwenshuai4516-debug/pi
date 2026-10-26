@@ -266,3 +266,10 @@ audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据�
 这不是模型工具，不授予浏览器执行或设计批准。消费宿主仍须在父响应交 SDK 前核验完成标记、事件/状态/trace、调用原生 PrivateEvidence 过滤，隐藏媒体并校验 writer 原文后独占发布。未支持多 frame/其他 target、任意依赖闭包、文件系统竞态和完整重连续录，不因 fixture 可用宣称产品私密 record 或真实 PMS 全链已完成。测试：`tests/ui-testing/recording-capture.test.mjs`；使用合成身份与真实 Chromium/CLI，不调用模型。
 
 0.1.17修正宿主私有根包含隔离mirror时的初始化误拒：校验实际捕获路径在当前mirror外，保留0700、canonical及非symlink要求，不把“根包含mirror”误作捕获泄露。初始化错误只输出固定检查阶段名，不附原始异常。宿主在启动runner前准备0700的output目录；fixture与CLI必须使用同一Playwright实例，版本相同但两份物理安装也不兼容。消费项目保留两类误配和旧版误拒证据，未修改个人依赖。
+
+
+### 私密采集会话声明（0.1.18）
+
+`private_recording.capture` 可选且只接受 `chromium-single-page-v1`。省略时保留原私密准备行为；声明采集时要求受管 `mcp__ui_playwright_test__` 后端、`max_steps <= 8`，并在冻结 scope 的 `max_tool_calls` 内为每个非清理动作保留原生动作和固定采集各一次、另加一次 `browser_close`，即 `2 * max_steps + 1`。预算不足在创建 session 前拒绝，不先执行业务动作。初始化失败后仍允许一次已启动会话的自有 context 清理；一次 close 请求后不追加动作或重复派发 close；原 operation_id 查询仍返回缓存，失败/未知清理需核对，不能自动重放。
+
+`RecordingService.privateContext` 只在声明采集时额外返回已核验的 `capture`：protocol、seedRef、project、outputFile、maxSteps、maxToolCalls 与 reservedToolCalls。宿主从该事实准备固定采集及草稿发布，不能从聊天输入猜路径或忽略 helper 预算。该声明不证明宿主已接通、不授予工具/业务权限；宿主须在 SDK 输出转换前完成原有过滤及安全发布。旧匿名/未声明采集的私密配置兼容，partial 缺口与旧结果保留。

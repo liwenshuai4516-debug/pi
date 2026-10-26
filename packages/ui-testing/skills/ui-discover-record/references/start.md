@@ -14,3 +14,6 @@ start 返回 session_ref；action 参数为 `{request:{operation:'action',sessio
 源码-only 清单通过 inventory 操作持久化，不需要构造虚假 recording。初始和最终清单可以使用不同 ID，最终清单用真实 observation_ref 增补 source_refs；scenario_id 按业务目标稳定命名，coverage 表达发现/探索/阻塞状态。原始观察不能当作未声明需求的正确性依据。
 
 宿主私密录制适配契约（0.1.15）：可选 `private_recording:{environment_ref,input_refs}` 只绑定公开文件引用，`input_refs` 须为不重复且包含原 `seed_ref` 的明确输入集合。原生核对环境 ID、角色、入口及受管独立 context 身份；每次新业务动作前重验认证有效期，过期仍允许 status/finish 和已初始化 context 的 browser_close。宿主通过 `RecordingService.privateContext(session_ref)` 取得核验后的环境及输入引用，再准备私有副本。该集合不证明任意项目依赖闭包完整，也不自动安装捕获/脱敏或开放 MCP 私密录制；宿主未完成接入时不得将其当作可用私密录制入口。旧匿名配置不需要此字段。
+
+
+受管私密采集由可信宿主选择 `private_recording.capture: "chromium-single-page-v1"`，不将秘密或私有路径写入参数。仅此固定协议，最多8个非清理动作；scope `max_tool_calls` 至少为 `2 * max_steps + 1`，包含每步一个固定采集 helper 与一次自有 context 清理。预算不足会在创建 session 前阻塞。声明不是接入或执行批准，宿主未接通时保留 partial，不绕过连接门禁。省略 capture 的旧准备流程不自动升级为采集。

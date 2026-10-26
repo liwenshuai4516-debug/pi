@@ -20,7 +20,8 @@ export const recordingStartSchema = Type.Object({
   test_data: Type.Array(Type.String({ minLength: 1 })),
   // 只冻结公开引用；宿主读取后准备私有副本，不能把认证内容写入会话。
   private_recording: Type.Optional(Type.Object({ environment_ref: fileRefSchema,
-    input_refs: Type.Array(fileRefSchema, { minItems: 1, maxItems: 128 }) }, { additionalProperties: false })),
+    input_refs: Type.Array(fileRefSchema, { minItems: 1, maxItems: 128 }),
+    capture: Type.Optional(Type.Literal('chromium-single-page-v1')) }, { additionalProperties: false })),
 }, { additionalProperties: false });
 export type RecordingStart = Static<typeof recordingStartSchema>;
 type Session = RecordingStart & { created_at: string; token: string };
@@ -67,8 +68,16 @@ export class RecordingService {
         !binding.input_refs.some(ref => isDeepStrictEqual(ref, input.seed_ref))) {
       throw new WorkflowError('precondition', '私密录制须绑定同一范围、受管隔离身份及含 seed 的唯一输入集合');
     }
+    // 每个非清理动作最多一个原生调用和一个固定采集调用，另留一次自有 context 清理。
+    if (binding.capture && (input.backend !== 'mcp__ui_playwright_test__' || input.max_steps > 8 ||
+        input.max_steps * 2 + 1 > scope.data.budget.max_tool_calls)) {
+      throw new WorkflowError('precondition', '采集协议须使用受管后端、最多8步，并为每步采集及一次清理保留范围预算');
+    }
     await authState(environment, this.projectRoot);
-    return { environment, environmentRef: binding.environment_ref, inputRefs: binding.input_refs };
+    return { environment, environmentRef: binding.environment_ref, inputRefs: binding.input_refs,
+      ...(binding.capture ? { capture: { protocol: binding.capture, seedRef: input.seed_ref, project: input.project,
+        outputFile: input.output_file, maxSteps: input.max_steps, maxToolCalls: scope.data.budget.max_tool_calls,
+        reservedToolCalls: input.max_steps * 2 + 1 } } : {}) };
   }
   /** 宿主只从已核验原生会话取得引用，不从聊天或 MCP 参数猜测私有作用域。 */
   async privateContext(ref: FileRef) {
@@ -168,13 +177,17 @@ export class RecordingService {
       try { await access(join(this.projectRoot, this.base(session.id), 'manifest.json')); throw new WorkflowError('precondition', '录制已登记结束，不能追加浏览器动作'); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       if (!recordingTools.includes(call.tool)) throw new WorkflowError('invalid-input', '录制 tool 须为不含 MCP 前缀的名称，例如 generator_setup_page；不会回退到其他浏览器后端');
+      if (session.private_recording?.capture && events.some(e => e.request.tool === 'browser_close')) {
+        throw new WorkflowError('precondition', '采集会话清理已请求，不能追加或重复分派；请核对旧结果并结束录制');
+      }
       const stopped = this.stopped(session, events);
       if (stopped && call.tool !== 'browser_close') throw new WorkflowError('precondition', `录制已停止：${stopped}`);
       if (call.tool === 'generator_setup_page' &&
           (call.input.seedFile !== session.seed_ref.path || call.input.project !== session.project || events.length)) {
         throw new WorkflowError('precondition', '只能首先执行已声明 seed/project，不重复初始化');
       }
-      if (call.tool !== 'generator_setup_page' && !events.some(e => e.request.tool === 'generator_setup_page' && !e.response?.isError)) {
+      if (call.tool !== 'generator_setup_page' && !events.some(e => e.request.tool === 'generator_setup_page' &&
+          (!e.response?.isError || (session.private_recording?.capture && call.tool === 'browser_close')))) {
         throw new WorkflowError('precondition', '必须先完成真实页面初始化');
       }
       if (call.tool === 'browser_type' && !(await this.data(session)).values.includes(String(call.input.text))) {
