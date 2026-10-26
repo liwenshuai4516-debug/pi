@@ -256,3 +256,11 @@ audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据�
 受信任宿主在已有用户明确授权后可调用 `DesignReviewService.renewBudget(taskRef, assetRef, { authorization_id, additional_rounds, reason }, authorize)`。每批追加1–3轮，费用由宿主限制；原scope不变，全部旧尝试保留。授权回调只在新授权时调用，拒绝不写入，重复ID参数冲突拒绝；有pending请求时不能续授。该接口不登记为Agent工具，不生成批准。
 
 认证捕获在公开进程输出前，从私有 trace 的标准 Cookie/Set-Cookie/Authorization 头收集运行时轮换值，并对公开日志、trace、上下文及文本附件统一脱敏。不能读取 trace 时拒绝发布，不自动重放。仅覆盖可在这些标准头观察到的值；不声称识别任意业务秘密、嵌套编码或脚本自行写出的文件。
+
+### 受管录制 fixture（0.1.16，宿主接入仍待完成）
+
+受信宿主可令 seed 使用 `pi-ui-testing/recording-fixtures` 的 `test/expect`，沿用 `uiEnvironment/uiOwner/uiProjectRoot` 与现有身份、前置和数据清理 fixture。必须提供工作区外 0700 的 `PI_UI_PRIVATE_EVIDENCE_DIR`、受管 storage-state-env、独立 context 及 `trace:'off'`；由本 fixture 在 uiData 导航前安装 Chromium 单 page/frame 观察器并启动原生 trace，不由 seed 拷贝观察代码或猜测相对私有路径。
+
+宿主固定代码调用 page 上的 `__pi_private_recording_capture(ordinal)`（1–8 顺序编号）；函数不返回路径或原文，在私有 `output/recording/capture-N/` 保存 0600 的 storage.json、trace.zip 和最后写入的 complete.json。复用 Playwright storageState/tracing 与原有 CDP 存储事件，原始事件由包内单一实现 `private-recording-storage-events.ts` 维护。并发/重复/越界编号、失效认证、不安全目录、frame/page 历史及采集失败会拒绝后续采集；旧文件不覆盖，dispose 解除观察并关闭自有 trace。
+
+这不是模型工具，不授予浏览器执行或设计批准。消费宿主仍须在父响应交 SDK 前核验完成标记、事件/状态/trace、调用原生 PrivateEvidence 过滤，隐藏媒体并校验 writer 原文后独占发布。未支持多 frame/其他 target、任意依赖闭包、文件系统竞态和完整重连续录，不因 fixture 可用宣称产品私密 record 或真实 PMS 全链已完成。测试：`tests/ui-testing/recording-capture.test.mjs`；使用合成身份与真实 Chromium/CLI，不调用模型。
