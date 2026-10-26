@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PrivateEvidence } from '../../packages/ui-testing/dist/private-evidence.js';
-import { ArtifactStore } from '../../packages/ui-testing/dist/store.js';
+import { PrivateEvidence, ArtifactStore } from '../../packages/ui-testing/dist/index.js';
 
 async function fixture(t, secret = 'synthetic+/private-value') {
   const base = await mkdtemp(join(tmpdir(), 'ui-private-test-'));
