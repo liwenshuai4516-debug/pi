@@ -14,3 +14,7 @@ description: 从已有 UI 正式批次计算统计、按原始证据分析失败
 用 draft-report 操作传 results_ref、analysis_ref、report_id。程序生成范围、版本、统计、分析及限制；不能自行改数字、删失败或宣告全产品质量。再调用 ui-result-review 完成独立评估。证据缺失时重新解析为新结果 ID，生成明确 partial 的阶段报告；不覆盖原始 run 或旧结果。
 
 处理分流：产品问题仅形成有依据的缺陷草稿；脚本问题新建修订回到设计评估；环境/数据恢复后新批次执行；证据不足先定向补证据。建议动作不表示已经修复、已经回归或已向外部系统提交缺陷。
+
+已有工作流优先调用 `analyze-task`（task_id，可选 findings），程序从该任务唯一的已结束 run 取得引用，执行结果对账及确定性交接；不复制聊天里的 run_ref/task_ref。view、取消/阻塞任务和中断/未知 run 不进入此入口。execute 已结束时先交接执行；analyze 模式只分析选定旧 run。成功批次自动保存空 findings 的分析及完整报告候选，返回简洁 summary；完整报告仍须独立结果评审，不把候选交接当最终批准。
+
+存在非 passed 实例时先返回 groups，保持 analyze 阶段；分组仅依据终态、证据状态及全部 attempt 的原始错误签名，不证明相同根因。逐个检查实例的 attempts、证据、cleanup 与缺口，提交每个实例的 findings 后再次调用同一 analyze-task；checkAnalysis 仍拒绝遗漏或跨实例附件。首败后通过仍为 flaky，取消/缺证据/数据残留均保留。重复调用返回原候选，不生成新批次；不同结论须显式新修订，不覆盖原分析。工具输出携带 workflow 当前状态，必要时用 ui_test_workflow status 按任务ID刷新既有看板。旧 parse/read-trace/save-analysis/draft-report 路径继续支持。

@@ -273,3 +273,11 @@ audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据�
 `private_recording.capture` 可选且只接受 `chromium-single-page-v1`。省略时保留原私密准备行为；声明采集时要求受管 `mcp__ui_playwright_test__` 后端、`max_steps <= 8`，并在冻结 scope 的 `max_tool_calls` 内为每个非清理动作保留原生动作和固定采集各一次、另加一次 `browser_close`，即 `2 * max_steps + 1`。预算不足在创建 session 前拒绝，不先执行业务动作。初始化失败后仍允许一次已启动会话的自有 context 清理；一次 close 请求后不追加动作或重复派发 close；原 operation_id 查询仍返回缓存，失败/未知清理需核对，不能自动重放。
 
 `RecordingService.privateContext` 只在声明采集时额外返回已核验的 `capture`：protocol、seedRef、project、outputFile、maxSteps、maxToolCalls 与 reservedToolCalls。宿主从该事实准备固定采集及草稿发布，不能从聊天输入猜路径或忽略 helper 预算。该声明不证明宿主已接通、不授予工具/业务权限；宿主须在 SDK 输出转换前完成原有过滤及安全发布。旧匿名/未声明采集的私密配置兼容，partial 缺口与旧结果保留。
+
+## U03 / U07 确定性交接与只读诊断复用（0.1.20；0.1.19 为本地未交付中间包）
+
+`status` 的 `stage_inputs` 提供最新 task/scope/asset/run/report 引用，`directory` 仅列当前技能。`handoff {task_id,stage,output_refs}` 在现有 checkpoint 校验后推进；重复已登记产物只查询，冲突/取消/未知写入停止。`continue-execute {task_id,authorized_asset_ref}` 仅用于已明确要求生成并执行的 completed/new 任务，核对完整资产和当前批准/诊断，登记确定 ID 的独立 execute 任务，不启动浏览器；record、入库/绑定/同步不由此授权。
+
+`ui_design_diagnose/reuse {asset_ref,review_ref,spec_ref}` 只核对现行权威诊断及全部已登记引用；输入、规则、部署/角色/数据声明变化或未决诊断拒绝复用。每批真实环境/数据预检仍执行，未知现场变更不能由查询推断相同。
+
+`ui_result_analysis/analyze-task {task_id,findings?}` 对已结束的选定 run 做原生对账，按观察签名分组并保留每个实例全部 attempts/证据/清理/缺口。全 passed 可自动生成空 findings 的简洁摘要及正常报告候选；非 passed 必须逐实例提交有效 findings。只推进到结果评审，不自动批准或重跑。重复返回原候选，不静默改结论；子批次只分析其自身结果，不覆盖父批次。验证见 `tests/ui-testing/optimization-handoff.test.mjs`，受控协议不替代真实模型质量验收。

@@ -19,8 +19,11 @@ export const workflowStartSchema = Type.Object({ task_id: id, mode: Type.Enum([.
 type Start = Static<typeof workflowStartSchema>;
 type Stage = typeof stages[number];
 type Mode = typeof workflowModes[number];
+export type Handoff = { task_id: string; stage: Stage; output_refs: FileRef[] };
 export type WorkflowRuntime = { tools: string[]; skills: string[] };
 const validateStart = new Ajv({ strict: true, allErrors: true }).compile(workflowStartSchema);
+const outputKinds: Record<Stage, Artifact['kind'][]> = { 'discover-record': ['inventory', 'recording'], 'case-design': ['asset'],
+  'design-review': ['asset', 'design-review'], execute: ['run'], analyze: ['report'], 'result-review': ['report', 'result-review'] };
 const json = (value: unknown) => JSON.stringify(value);
 const same = (a: FileRef, b: FileRef) => a.path === b.path && a.sha256 === b.sha256;
 const paths: Record<Mode, Stage[]> = {
@@ -172,7 +175,26 @@ export class UiWorkflowService {
     const task = await this.store.load(taskRef, false) as Artifact<'task'>;
     if (task.kind !== 'task' || !task.data.workflow) throw new WorkflowError('invalid-input', '需要已登记的 UI 工作流任务');
     const requirements = await this.requirements(task);
-    return { task_ref: taskRef, task, ...requirements, next_stage: ['completed', 'cancelled'].includes(task.data.state) ? null : task.data.stage,
+    const outputs = await Promise.all(task.data.output_refs.filter(ref => ref.path.endsWith('/manifest.json'))
+      .map(async ref => ({ ref, artifact: await this.store.load(ref, false) })));
+    const terminal = ['completed', 'cancelled'].includes(task.data.state);
+    let runRef = task.data.workflow.source_run_ref;
+    if (task.data.run_ids.length) {
+      const runs = (await this.store.reindex()).records.filter(r => r.kind === 'run' && task.data.run_ids.includes(r.id));
+      if (runs.length !== 1) throw new WorkflowError('precondition', '任务批次不唯一，须明确选择，不从聊天或最新时间猜测');
+      const run = await this.store.load(runs[0].ref, false) as Artifact<'run'>;
+      if (run.data.task_id !== task.id) throw new WorkflowError('precondition', '批次归属与任务不符');
+      runRef = runs[0].ref;
+    }
+    const stageInputs = { task_ref: taskRef, scope_ref: task.data.scope_ref,
+      asset_refs: [...new Map(outputs.filter(o => o.artifact.kind === 'asset').map(o => o.ref).concat(task.data.asset_refs)
+        .map(ref => [json(ref), ref])).values()],
+      ...(runRef ? { run_ref: runRef } : {}),
+      report_refs: outputs.filter(o => o.artifact.kind === 'report').map(o => o.ref),
+      output_refs: task.data.output_refs };
+    return { task_ref: taskRef, task, ...requirements,
+      directory: terminal || task.data.workflow.mode === 'view' ? [] : requirements.directory.filter(d => d.stage === task.data.stage),
+      stage_inputs: stageInputs, next_stage: terminal ? null : task.data.stage,
       next_skill: task.data.workflow.mode === 'view' || ['completed', 'cancelled'].includes(task.data.state) ? null : skills[task.data.stage],
       follow_up: task.data.state === 'completed' && task.data.workflow.mode === 'new'
         ? '资产准备已结束；根据原任务的新建并执行意图，为获批资产新建 execute 任务。仅 record 模式不得自动继续执行。' : null };
@@ -182,17 +204,60 @@ export class UiWorkflowService {
     if (!entry) throw new WorkflowError('precondition', '未找到工作流任务');
     return this.status(entry.ref);
   }
-  async checkpoint(taskRef: FileRef, stage: Stage, outputRefs: FileRef[]) {
+  /** 重复事件按任务原产物对账；只交接一次，不重放浏览器或模型。 */
+  async handoff(input: Handoff, signal?: AbortSignal) {
+    const release = await this.store.acquireResource(`workflow:${input.task_id}`);
+    try {
+      if (signal?.aborted) throw new WorkflowError('cancelled', '工作流交接已取消');
+      const current = await this.find(input.task_id);
+      if (current.task.data.completed_stages.includes(input.stage)) {
+        if (!input.output_refs.length || input.output_refs.some(ref => !current.task.data.output_refs.some(old => same(old, ref)))) {
+          throw new WorkflowError('precondition', '重复交接不能更换原产物');
+        }
+        const artifacts = await Promise.all(input.output_refs.map(ref => this.store.load(ref, false)));
+        const kinds = current.task.data.workflow?.mode === 'view' ? ['run'] : outputKinds[input.stage];
+        if (artifacts.some(a => !kinds.includes(a.kind))) throw new WorkflowError('invalid-input', '重复交接产物不属于原阶段');
+        await verifyReferences(this.root, input.output_refs);
+        return { ...current, replayed: true };
+      }
+      if (current.task.data.state !== 'running') throw new WorkflowError('precondition', '任务已阻塞或取消；先显式核对并续跑');
+      if (signal?.aborted) throw new WorkflowError('cancelled', '工作流交接已取消');
+      return { ...await this.checkpoint(current.task_ref, input.stage, input.output_refs, signal), replayed: false };
+    } finally { await release(); }
+  }
+  /** 此处仅登记独立 execute 任务；显式授权摘要不得扩大为其他资产或隐式执行。 */
+  async continueExecute(taskId: string, authorizedAssetRef: FileRef, signal?: AbortSignal) {
+    if (signal?.aborted) throw new WorkflowError('cancelled', '执行任务衔接已取消');
+    const current = await this.find(taskId);
+    if (current.task.data.workflow?.mode !== 'new' || current.task.data.state !== 'completed') {
+      throw new WorkflowError('precondition', '仅已完成的 new 任务可按原生成并执行授权衔接；record 不自动执行');
+    }
+    const assets = current.stage_inputs.asset_refs;
+    if (assets.length !== 1 || !same(assets[0], authorizedAssetRef)) throw new WorkflowError('precondition', '执行授权须覆盖当前完整资产，范围不一致时停止');
+    const approvals = [];
+    for (const ref of current.task.data.output_refs.filter(r => r.path.endsWith('/manifest.json'))) {
+      const artifact = await this.store.load(ref, false);
+      if (artifact.kind === 'design-review' && same(artifact.data.subject_ref, authorizedAssetRef)) approvals.push(ref);
+    }
+    if (approvals.length !== 1) throw new WorkflowError('precondition', '设计批准不唯一，不能自动选择');
+    await new DesignReviewService(this.root, this.authorityRoot).gate(authorizedAssetRef, approvals[0]);
+    const executeTaskId = `execute-${sha256(json([taskId, authorizedAssetRef])).slice(0, 32)}`;
+    const asset = await this.store.load(authorizedAssetRef) as Artifact<'asset'>;
+    if (signal?.aborted) throw new WorkflowError('cancelled', '执行任务衔接已取消');
+    return { ...await this.start({ task_id: executeTaskId, mode: 'execute', asset_ref: authorizedAssetRef }),
+      source_task_id: taskId, execution_scope: { asset_ref: authorizedAssetRef, full_asset: true, case_ids: asset.data.bindings?.map(b => b.case_id) ?? [] } };
+  }
+  async checkpoint(taskRef: FileRef, stage: Stage, outputRefs: FileRef[], signal?: AbortSignal) {
+    if (signal?.aborted) throw new WorkflowError('cancelled', '工作流交接已取消');
     const { task, sequence, blockers } = await this.status(taskRef);
     if (['completed', 'cancelled'].includes(task.data.state) || task.data.stage !== stage) throw new WorkflowError('precondition', '阶段与当前任务不一致或任务已终结');
+    if (signal?.aborted) throw new WorkflowError('cancelled', '工作流交接已取消');
     if (blockers.length) return this.block(taskRef, blockers.map(b => b.message));
     if (!outputRefs.length) throw new WorkflowError('invalid-input', '完成阶段须有真实产物');
     await verifyReferences(this.root, outputRefs);
     const artifacts = await Promise.all(outputRefs.map(ref => this.store.load(ref, false)));
-    const kinds: Record<Stage, Artifact['kind'][]> = { 'discover-record': ['inventory', 'recording'], 'case-design': ['asset'],
-      'design-review': ['asset', 'design-review'], execute: ['run'], analyze: task.data.workflow!.mode === 'view' ? ['run'] : ['report'],
-      'result-review': ['report', 'result-review'] };
-    if (artifacts.some(a => !kinds[stage].includes(a.kind))) throw new WorkflowError('invalid-input', '阶段产物类型不匹配');
+    const kinds = task.data.workflow!.mode === 'view' ? ['run'] : outputKinds[stage];
+    if (artifacts.some(a => !kinds.includes(a.kind))) throw new WorkflowError('invalid-input', '阶段产物类型不匹配');
     const allRefs = [...task.data.output_refs, ...outputRefs];
     // output_refs 也保留交付 Markdown；阶段选择只读取原生产物清单。
     const all = await Promise.all(allRefs.filter(ref => ref.path.endsWith('/manifest.json')).map(async ref => ({ ref, artifact: await this.store.load(ref, false) })));
@@ -243,11 +308,13 @@ export class UiWorkflowService {
       const selectedRun = task.data.workflow!.mode === 'analyze' ? task.data.workflow!.source_run_ref : all.find(a => a.artifact.kind === 'run' &&
         (a.artifact as Artifact<'run'>).data.task_id === task.id)?.ref;
       if (!selectedRun || !same((report.artifact as Artifact<'report'>).data.run_ref, selectedRun)) throw new WorkflowError('precondition', '最终报告须来自任务选定批次，不能以另一批次替换');
+      if (signal?.aborted) throw new WorkflowError('cancelled', '工作流交接已取消');
       const delivered = await new ResultReviewService(this.root, this.authorityRoot).deliver(report.ref, review ? outputRefs[artifacts.indexOf(review)] : undefined);
       deliveryRef = delivered.delivery_ref;allRefs.push(deliveryRef);
       // 阶段文件已交付不等于完整任务完成；保留同一任务及产物供显式续跑。
       if (delivered.completeness !== 'complete' || !delivered.independently_approved) {
         const partial = report.artifact as Artifact<'report'>;
+        if (signal?.aborted) throw new WorkflowError('cancelled', '阶段交付已保存，交接已取消；核对原任务');
         const blockedRef = await this.store.updateTask(taskRef, { ...task, data: { ...task.data,
           state: 'blocked', stage, output_refs: [...new Map(allRefs.map(ref => [ref.path, ref])).values()],
           blockers: ['报告完整性未通过，最终交付未完成；修复缺口后续跑当前任务。', ...partial.data.limitations] } });
@@ -255,6 +322,7 @@ export class UiWorkflowService {
       }
     }
     const completed = [...new Set([...task.data.completed_stages, stage])], next = sequence.find(s => !completed.includes(s));
+    if (signal?.aborted) throw new WorkflowError('cancelled', '工作流交接已取消');
     const nextRef = await this.store.updateTask(taskRef, { ...task, data: { ...task.data, state: next ? 'running' : 'completed',
       stage: next ?? stage, completed_stages: completed, output_refs: [...new Map(allRefs.map(ref => [ref.path, ref])).values()], blockers: [] } });
     return { ...await this.status(nextRef), ...(deliveryRef ? { delivery_ref: deliveryRef } : {}) };

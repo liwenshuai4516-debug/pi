@@ -52,6 +52,16 @@ export class RuntimeAdmissionService {
     }
     return { ...request, runtime_ready: ready };
   }
+  /** 只查询当前权威证明；不因新请求 ID 重跑诊断，不读取私密认证正文。 */
+  async reuse(assetRef: FileRef, reviewRef: FileRef, specRef: FileRef) {
+    await this.design.gate(assetRef, reviewRef);
+    const summaryRef = await verifyRuntimeAdmission(this.root, this.authorityRoot, assetRef, reviewRef);
+    const result = JSON.parse(await readFile(await workspacePath(this.root, summaryRef.path), 'utf8')) as DiagnosticResult;
+    if (!same(result.spec_ref, specRef)) throw new WorkflowError('precondition', '诊断计划与当前输入不一致，不能复用');
+    await verifyReferences(this.root, specRef);
+    return { ...result, summary_ref: summaryRef, runtime_ready: true, reused: true,
+      applicability: '仅当前登记的资产、规则、依赖、配置、部署、角色和数据声明；真实环境与数据仍须每批预检，未知变更不由此查询证明一致' };
+  }
   async diagnose(assetRef: FileRef, reviewRef: FileRef, specRef: FileRef, requestId: string, signal?: AbortSignal): Promise<DiagnosticResult & { runtime_ready: boolean }> {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$/.test(requestId)) throw new WorkflowError('invalid-input', '诊断请求 ID 无效');
     await this.design.gate(assetRef, reviewRef, false);

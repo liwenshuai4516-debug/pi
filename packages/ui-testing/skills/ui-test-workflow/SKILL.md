@@ -37,3 +37,7 @@ discover-record 交接完整 recording；source 模式交接含 draft_refs 的 i
 - export：asset_ref、bundle_id，复制引用闭包到 qa/ui-transfers/<id>，不复制私有认证/模型/会话/批准。缺依赖或绝对模块路径先修订，不隐藏迁移失败。
 - import：迁移文件夹已放入允许的新项目后，传 bundle_ref。缺失/损坏依赖返回清单，不从头重生成；目标环境重新核对依赖、身份、设计批准和诊断，未迁移旧批准。
 - audit-evidence：retention_days、audit_id，保存到 qa/ui/maintenance，标记超过保留期及不可核验文件。已登记 run 引用默认保护，当前没有外部缺陷关闭的可信源，所以不自动删除；不要用审计覆盖原始报告。
+
+按任务 ID 衔接时，status 返回当前阶段的 `stage_inputs`（当前 task/scope、已交接资产、唯一选定 run、报告及既有产物）和当前技能目录；不从聊天摘要或最新文件时间猜引用。使用 `handoff` 传 task_id、stage、output_refs，可省去手工复制易失效的 task_ref；程序重读最新任务并复用原 checkpoint 校验。相同已完成阶段/原产物重复返回 replayed=true；并发占用、改变产物、阻塞/取消或阶段冲突先核对，不自动重放。原 checkpoint 和显式 resume-task 继续兼容。
+
+用户已明确要求本范围“生成并执行”时，new 完成后可调用 `continue-execute`（task_id、authorized_asset_ref），摘要必须与该任务完整获批资产一致；返回稳定的独立 execute 任务和 execution_scope，列出全资产 case_ids。该操作只登记任务，不启动浏览器；诊断与每批预检仍由原生门禁强制。record 不自动承接，局部授权不能扩大为完整资产。入库、绑定、同步权限各自独立，不由此操作授予。未知副作用、取消或中断先查旧任务/批次，禁止重新创建目标逃避阻塞。

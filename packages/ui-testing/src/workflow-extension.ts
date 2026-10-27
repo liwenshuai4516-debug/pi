@@ -33,11 +33,14 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
     },
   });
   pi.registerTool({ name: 'ui_test_workflow', label: 'UI 测试任务与按需交接',
-    description: '查询资产/能力，登记新建、仅录制、执行已有资产、分析旧 run 或查看任务，并保存已核验阶段。只选择与交接，不启动浏览器或模型评估；已有工具执行各阶段。',
+    description: 'Route UI tasks, expose current stage references and checkpoint verified outputs by task ID. Continue an explicitly authorized new task into a separate execution task; never launch browsers or model reviews here.',
     parameters: Type.Object({ request: Type.Union([
       Type.Object({ operation: Type.Literal('catalog') }),
       Type.Object({ operation: Type.Literal('start'), input: workflowStartSchema }),
       Type.Object({ operation: Type.Literal('status'), task_id: Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' }) }),
+      Type.Object({ operation: Type.Literal('handoff'), task_id: Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' }),
+        stage: Type.Enum([...stages]), output_refs: Type.Array(fileRefSchema, { minItems: 1 }) }),
+      Type.Object({ operation: Type.Literal('continue-execute'), task_id: Type.String({ pattern: '^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$' }), authorized_asset_ref: fileRefSchema }),
       Type.Object({ operation: Type.Literal('checkpoint'), task_ref: fileRefSchema, stage: Type.Enum([...stages]), output_refs: Type.Array(fileRefSchema, { minItems: 1 }) }),
       Type.Object({ operation: Type.Literal('block'), task_ref: fileRefSchema, reasons: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }) }),
       Type.Object({ operation: Type.Literal('resume-task'), task_ref: fileRefSchema }),
@@ -54,7 +57,9 @@ export function registerWorkflowTools(pi: ExtensionAPI) {
         const output = request.operation === 'catalog' ? await service.catalog()
           : request.operation === 'start' ? await service.start(request.input)
           : request.operation === 'status' ? await service.find(request.task_id)
-          : request.operation === 'checkpoint' ? await service.checkpoint(request.task_ref, request.stage, request.output_refs)
+          : request.operation === 'handoff' ? await service.handoff(request, signal)
+          : request.operation === 'continue-execute' ? await service.continueExecute(request.task_id, request.authorized_asset_ref, signal)
+          : request.operation === 'checkpoint' ? await service.checkpoint(request.task_ref, request.stage, request.output_refs, signal)
           : request.operation === 'resume-task' ? await service.resumeTask(request.task_ref)
           : await service.block(request.task_ref, request.reasons);
         const blockers = 'blockers' in output ? output.blockers : [];

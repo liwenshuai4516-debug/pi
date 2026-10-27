@@ -47,18 +47,23 @@ export function registerDesignTools(pi: ExtensionAPI) {
   });
   pi.registerTool({
     name: 'ui_design_diagnose', label: 'UI 设计诊断与运行登记',
-    description: 'schema 返回诊断计划结构，不启动浏览器；diagnose 对可信设计批准执行隔离 Playwright 正反对照并登记运行证明。请求去重；未知执行不重放。status 只读旧请求。诊断不是正式业务测试。',
+    description: 'Inspect diagnostic schemas/status or reuse exact valid admission without a browser. Diagnose approved assets with isolated positive/negative probes; preserve unknown effects and existing execution gates.',
     parameters: Type.Object({ request: Type.Union([
       Type.Object({ operation: Type.Literal('schema') }),
       Type.Object({ operation: Type.Literal('diagnose'), asset_ref: fileRefSchema, review_ref: fileRefSchema,
         spec_ref: fileRefSchema, request_id: id }),
       Type.Object({ operation: Type.Literal('status'), request_id: id }),
+      Type.Object({ operation: Type.Literal('reuse'), asset_ref: fileRefSchema, review_ref: fileRefSchema, spec_ref: fileRefSchema }),
     ]) }),
     async execute(_id, { request }, signal, _update, ctx) {
       try {
         if (request.operation === 'schema') return success('ui-design-diagnose', [], diagnosticSpecSchema);
         const [{ RuntimeAdmissionService }, { join }] = await Promise.all([import('./runtime-admission.js'), import('node:path')]);
         const service = new RuntimeAdmissionService(ctx.cwd, join(ctx.sessionManager.getSessionDir(), 'ui-review-authority'));
+        if (request.operation === 'reuse') {
+          const result = await service.reuse(request.asset_ref, request.review_ref, request.spec_ref);
+          return success('ui-design-diagnose', [result.summary_ref], result);
+        }
         if (request.operation === 'status') {
           const result = await service.status(request.request_id);
           return success('ui-design-diagnose', [result.input_ref, result.summary_ref].filter((r): r is FileRef => !!r), result);

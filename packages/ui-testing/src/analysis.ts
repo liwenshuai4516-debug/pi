@@ -2,9 +2,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import { posix } from 'node:path';
 import { ArtifactStore } from './store.js';
-import { reconcileRun } from './results.js';
+import { collectResults, reconcileRun } from './results.js';
+import type { UiWorkflowService } from './workflow.js';
 import { finalStates, type Artifact, type FileRef } from './contracts.js';
-import { fileRefs, verifyReferences, workspacePath, WorkflowError } from './validation.js';
+import { fileRefs, sha256, verifyReferences, workspacePath, WorkflowError } from './validation.js';
 
 const same = (a: FileRef, b: FileRef) => a.path === b.path && a.sha256 === b.sha256;
 export async function verifyResults(root: string, ref: FileRef) {
@@ -59,6 +60,66 @@ export async function checkAnalysis(root: string, analysis: Artifact<'analysis'>
 export async function saveAnalysis(root: string, analysis: Artifact<'analysis'>) {
   await checkAnalysis(root, analysis);
   return { analysis_ref: await new ArtifactStore(root).put(analysis) };
+}
+
+/** 按观察签名分组而不推断共同根因；每个实例保留全部 attempts、残留及缺口。 */
+export function groupFailures(input: Pick<Awaited<ReturnType<typeof reconcileRun>>, 'data' | 'details'>) {
+  const groups = new Map<string, { status: string; instances: typeof input.data.instances }>();
+  for (const instance of input.data.instances.filter(i => i.status !== 'passed')) {
+    const key = JSON.stringify([instance.status, instance.evidence_state,
+      instance.attempts.map(a => [a.native_status, a.errors])]);
+    const group = groups.get(key) ?? { status: instance.status, instances: [] };
+    group.instances.push(instance); groups.set(key, group);
+  }
+  return [...groups.entries()].map(([key, group]) => ({ group_id: sha256(key), ...group,
+    details: input.details.instances.filter(i => group.instances.some(member => member.instance_id === i.instance_id)),
+    interpretation: '相同观察签名不证明相同根因；每个非 passed 实例仍须独立 finding 和本批次证据' }));
+}
+
+/** 仅对任务选定的已结束 run 做确定性处理；不启动浏览器或模型，不跳过结果评审。 */
+export async function analyzeTask(workflow: UiWorkflowService, taskId: string,
+  findings?: Artifact<'analysis'>['data']['findings'], signal?: AbortSignal) {
+  const release = await workflow.store.acquireResource(`analysis:${taskId}`);
+  try {
+    if (signal?.aborted) throw new WorkflowError('cancelled', '任务分析已取消');
+    let current = await workflow.find(taskId);
+    const mode = current.task.data.workflow!.mode;
+    if (mode === 'view') throw new WorkflowError('precondition', '查看任务只读取旧批次，不生成分析或评审');
+    const runRef = current.stage_inputs.run_ref;
+    if (!runRef) throw new WorkflowError('precondition', '任务缺少唯一已登记批次');
+    const run = await workflow.store.load(runRef, false) as Artifact<'run'>;
+    if (run.kind !== 'run' || run.data.state !== 'finished') throw new WorkflowError('precondition', '批次尚未结束或副作用未知，不自动交接或重放');
+    if (current.task.data.completed_stages.includes('analyze')) {
+      if (current.stage_inputs.report_refs.length !== 1) throw new WorkflowError('precondition', '任务报告不唯一，须明确选择');
+      const ref = current.stage_inputs.report_refs[0], report = await workflow.store.load(ref) as Artifact<'report'>;
+      if (!same(report.data.run_ref, runRef)) throw new WorkflowError('precondition', '报告不属于选定批次');
+      const checked = await verifyResults(workflow.root, report.data.results_ref);
+      const analysis = await workflow.store.load(report.data.analysis_ref) as Artifact<'analysis'>;
+      if (findings && !isDeepStrictEqual(findings, analysis.data.findings)) throw new WorkflowError('precondition', '重复分析不能更换结论，须显式新修订');
+      return { workflow: current, report_ref: ref, results_ref: report.data.results_ref,
+        summary: { counts: checked.data.counts, complete: checked.details.complete, stable_pass_rate: checked.details.stable_pass_rate },
+        groups: groupFailures(checked), replayed: true };
+    }
+    if (current.task.data.state !== 'running' || !['execute', 'analyze'].includes(current.task.data.stage)) {
+      throw new WorkflowError('precondition', '任务不在可分析阶段；阻塞/取消须显式核对并续跑');
+    }
+    if (current.task.data.stage === 'execute') current = await workflow.handoff({ task_id: taskId, stage: 'execute', output_refs: [runRef] }, signal);
+    if (current.task.data.stage !== 'analyze' || current.blockers.length) throw new WorkflowError('precondition', '分析前置阶段尚未放行');
+    const id = `task-${sha256(JSON.stringify([taskId, runRef])).slice(0, 24)}`;
+    // collectResults 已对本轮原生结果完成对账；下游保存/报告仍各自核验，不重复立即重算。
+    const parsed = await collectResults(workflow.root, runRef, id);
+    const groups = groupFailures(parsed);
+    const summary = { counts: parsed.data.counts, complete: parsed.details.complete, stable_pass_rate: parsed.details.stable_pass_rate };
+    if (groups.length && !findings) return { workflow: current, results_ref: parsed.results_ref, summary, groups, replayed: false };
+    if (signal?.aborted) throw new WorkflowError('cancelled', '任务分析已取消');
+    const saved = await saveAnalysis(workflow.root, { schema_version: '1.0', kind: 'analysis', id,
+      created_at: run.created_at, data: { run_ref: runRef, results_ref: parsed.results_ref, findings: findings ?? [] } });
+    const report = await draftReport(workflow.root, parsed.results_ref, saved.analysis_ref, id);
+    if (signal?.aborted) throw new WorkflowError('cancelled', '报告候选已保存，交接已取消；核对原任务后续跑');
+    // 本调用已取得当前引用；复用原 checkpoint 的版本冲突检查，不再按 ID 扫描一次。
+    const next = await workflow.checkpoint(current.task_ref, 'analyze', [report.report_ref], signal);
+    return { workflow: next, results_ref: parsed.results_ref, report_ref: report.report_ref, summary, groups, replayed: false };
+  } finally { await release(); }
 }
 
 export async function composeReport(root: string, resultsRef: FileRef, analysisRef: FileRef, reportId: string, linkDirectory?: string) {

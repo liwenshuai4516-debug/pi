@@ -2,7 +2,8 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { collectResults } from './results.js';
-import { saveAnalysis, draftReport } from './analysis.js';
+import { saveAnalysis, draftReport, analyzeTask } from './analysis.js';
+import { UiWorkflowService } from './workflow.js';
 import { ResultReviewService } from './result-review.js';
 import { fileRefSchema, schemas, type Artifact, type FileRef } from './contracts.js';
 import { WorkflowError } from './validation.js';
@@ -23,9 +24,10 @@ function failure(capability: string, error: unknown) {
 }
 export function registerResultTools(pi: ExtensionAPI) {
   pi.registerTool({ name: 'ui_result_analysis', label: 'UI 统计、分析与报告候选',
-    description: '只读取已有正式 run，以程序逐实例对账并统计；登记带本批次证据的分析，生成确定性报告草稿。不执行浏览器，不授予报告批准。',
+    description: 'Reconcile existing UI runs, group observed failures without inferring shared causes, and prepare report candidates by task ID. Preserve per-instance evidence and independent result review; never run a browser.',
     parameters: Type.Object({ request: Type.Union([
       Type.Object({ operation: Type.Literal('parse'), run_ref: fileRefSchema, result_id: id }),
+      Type.Object({ operation: Type.Literal('analyze-task'), task_id: id, findings: Type.Optional(schemas.analysis.properties.data.properties.findings) }),
       Type.Object({ operation: Type.Literal('read-trace'), results_ref: fileRefSchema, trace_ref: fileRefSchema }),
       Type.Object({ operation: Type.Literal('save-analysis'), analysis: schemas.analysis }),
       Type.Object({ operation: Type.Literal('draft-report'), results_ref: fileRefSchema, analysis_ref: fileRefSchema, report_id: id }),
@@ -33,6 +35,15 @@ export function registerResultTools(pi: ExtensionAPI) {
     async execute(_id, { request }, signal, _update, ctx) {
       try {
         if (signal?.aborted) throw new WorkflowError('cancelled', '结果处理已取消');
+        if (request.operation === 'analyze-task') {
+          const prompt = ctx.getSystemPrompt();
+          const skills = [...prompt.matchAll(/<available_skills>([\s\S]*?)<\/available_skills>/g)].flatMap(block =>
+            [...block[1].matchAll(/<name>([a-z0-9-]+)<\/name>/g)].map(match => match[1]));
+          const workflow = new UiWorkflowService(ctx.cwd, join(ctx.sessionManager.getSessionDir(), 'ui-review-authority'),
+            { tools: ctx.tools.map(t => t.name), skills });
+          const output = await analyzeTask(workflow, request.task_id, request.findings, signal);
+          return result('ui-result-analysis', output, [output.results_ref, ...(output.report_ref ? [output.report_ref] : [])]);
+        }
         if (request.operation === 'read-trace') return result('ui-result-analysis',
           await traceEvidence(ctx.cwd, request.results_ref, request.trace_ref), [request.trace_ref]);
         if (request.operation === 'parse') {

@@ -24,7 +24,7 @@ test('UI-09: source-only record persists verified stages and stops after design 
   await assert.rejects(workflow.start({task_id:'invalid-mode',mode:'unsupported',scope_ref:f.asset.data.scope_ref}),/不符合契约/);
   await assert.rejects(workflow.start({task_id:'unknown-schema',mode:'record',scope_ref:f.asset.data.scope_ref,schema_version:'2.0'}),/不符合契约/);
   assert.deepEqual(task.sequence,['discover-record','case-design','design-review']);assert.equal(task.task.data.state,'running');
-  assert.deepEqual(task.directory.map(d=>d.skill),['ui-discover-record','ui-case-design','ui-design-review']);
+  assert.deepEqual(task.directory.map(d=>d.skill),['ui-discover-record']);
   await assert.rejects(workflow.checkpoint(task.task_ref,'execute',[f.assetRef]),/阶段/);
   const inventory=await f.store.load(f.asset.data.inventory_ref);inventory.id='source-workflow';
   inventory.data.draft_refs=[await f.store.putFile('qa/ui/inventories/source-workflow/drafts/name.spec.ts','// source-grounded draft; not browser-recorded')];
@@ -151,7 +151,7 @@ test('UI-09: analyze and view routes use old evidence only; full result review c
     }
     if(count++===0)return {tool:'ui_test_workflow',args:{request:{operation:'start',input:{task_id:'analyze-old',mode:'analyze',run_ref:execution.run_ref}}}};
     const last=previous(body);assert.equal(last.status,'completed',JSON.stringify(last));
-    if(count===2){taskRef=last.output.task_ref;assert.deepEqual(last.output.directory.map(d=>d.skill),['ui-result-analysis','ui-result-review']);
+    if(count===2){taskRef=last.output.task_ref;assert.deepEqual(last.output.directory.map(d=>d.skill),['ui-result-analysis']);
       return {tool:'ui_result_analysis',args:{request:{operation:'parse',run_ref:execution.run_ref,result_id:'workflow-analysis'}}};}
     if(count===3){parsed=last.output;return {tool:'ui_result_analysis',args:{request:{operation:'save-analysis',analysis:artifact('analysis',{
       run_ref:execution.run_ref,results_ref:parsed.results_ref,findings:[finding(parsed)]},'workflow-analysis')}}};}
