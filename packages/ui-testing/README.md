@@ -285,3 +285,14 @@ audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据�
 ### 冻结声明与报告当前状态
 
 结果对账的 `coverage.gap_basis=frozen-input-declarations-not-current-status` 标识 `case_gaps/asset_gaps` 来自执行前冻结输入；原文保留，报告限制明确标注为历史声明，不将“待评审/待执行”当作当前状态。当前设计结论和执行统计仍取自实际批准与原生批次。历史候选和已保存报告不覆盖；升级后重新解析为新的 results/analysis/report ID，再独立评审。
+
+## ui-test-workflow 文档结构（0.1.21）
+
+仅调整 `skills/ui-test-workflow/SKILL.md` 的文档结构，不改任何工具、参数、门禁、枚举或产物协议：
+
+- 补 7 步编号主链（询资产 → 定路径 → 开或接任务 → 载当前阶段 → 跑当前阶段 → 交阶段 → 收尾），每步标注输入/输出；
+- mode 表增加「用户说的」列，把用户原话直接映射到 mode 与必带入参，并补拿不准时的分流判据；
+- 新增阶段 Skill 一览，7 个名称与包内 `skills/` 目录逐字对齐，并显式排除 `ui-run-analyze`、`ui-run-execute` 这类臆造名；
+- 新增跨阶段失败分支索引 12 条（触发 → 一线 → 兜底），逐阶段细则仍以正文为准。
+
+正文原有条款、参数与拒绝条件零删改。
