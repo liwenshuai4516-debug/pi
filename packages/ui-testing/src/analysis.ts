@@ -32,8 +32,7 @@ export async function analysisInputs(root: string, resultsRef: FileRef) {
   return { ...verified, run, asset, cases, scope, allowed };
 }
 
-export async function checkAnalysis(root: string, analysis: Artifact<'analysis'>) {
-  const input = await analysisInputs(root, analysis.data.results_ref);
+function checkAnalysisInput(input: Awaited<ReturnType<typeof analysisInputs>>, analysis: Artifact<'analysis'>) {
   if (!same(analysis.data.run_ref, input.data.run_ref)) throw new WorkflowError('precondition', '分析与统计不属于同一批次');
   const seen = new Set<string>();
   for (const finding of analysis.data.findings) {
@@ -48,7 +47,6 @@ export async function checkAnalysis(root: string, analysis: Artifact<'analysis'>
           (ref.path.includes('/output/') && !owned.some(a => same(a, ref))))) {
       throw new WorkflowError('insufficient-evidence', '分析必须有观察事实、下一动作及本批次/原始来源证据，不能引用其他批次');
     }
-    await verifyReferences(root, finding.supporting_refs);
     if (finding.certainty === 'unknown' && !finding.alternatives.length) throw new WorkflowError('invalid-input', '未知结论须保留替代解释或待补事实');
   }
   if (input.data.instances.some(i => i.status !== 'passed' && !seen.has(i.instance_id))) {
@@ -57,8 +55,20 @@ export async function checkAnalysis(root: string, analysis: Artifact<'analysis'>
   return input;
 }
 
+export async function checkAnalysis(root: string, analysis: Artifact<'analysis'>) {
+  const input = await analysisInputs(root, analysis.data.results_ref);
+  await verifyReferences(root, analysis.data.findings.flatMap(finding => finding.supporting_refs));
+  return checkAnalysisInput(input, analysis);
+}
+
 export async function saveAnalysis(root: string, analysis: Artifact<'analysis'>) {
   await checkAnalysis(root, analysis);
+  return { analysis_ref: await new ArtifactStore(root).put(analysis) };
+}
+
+async function saveAnalysisWithInput(root: string, input: Awaited<ReturnType<typeof analysisInputs>>, analysis: Artifact<'analysis'>) {
+  await verifyReferences(root, analysis.data.findings.flatMap(finding => finding.supporting_refs));
+  checkAnalysisInput(input, analysis);
   return { analysis_ref: await new ArtifactStore(root).put(analysis) };
 }
 
@@ -112,9 +122,11 @@ export async function analyzeTask(workflow: UiWorkflowService, taskId: string,
     const summary = { counts: parsed.data.counts, complete: parsed.details.complete, stable_pass_rate: parsed.details.stable_pass_rate };
     if (groups.length && !findings) return { workflow: current, results_ref: parsed.results_ref, summary, groups, replayed: false };
     if (signal?.aborted) throw new WorkflowError('cancelled', '任务分析已取消');
-    const saved = await saveAnalysis(workflow.root, { schema_version: '1.0', kind: 'analysis', id,
-      created_at: run.created_at, data: { run_ref: runRef, results_ref: parsed.results_ref, findings: findings ?? [] } });
-    const report = await draftReport(workflow.root, parsed.results_ref, saved.analysis_ref, id);
+    const input = await analysisInputs(workflow.root, parsed.results_ref);
+    const analysis: Artifact<'analysis'> = { schema_version: '1.0', kind: 'analysis', id,
+      created_at: run.created_at, data: { run_ref: runRef, results_ref: parsed.results_ref, findings: findings ?? [] } };
+    const saved = await saveAnalysisWithInput(workflow.root, input, analysis);
+    const report = await draftReportWithInput(workflow.root, input, parsed.results_ref, saved.analysis_ref, id);
     if (signal?.aborted) throw new WorkflowError('cancelled', '报告候选已保存，交接已取消；核对原任务后续跑');
     // 本调用已取得当前引用；复用原 checkpoint 的版本冲突检查，不再按 ID 扫描一次。
     const next = await workflow.checkpoint(current.task_ref, 'analyze', [report.report_ref], signal);
@@ -124,12 +136,17 @@ export async function analyzeTask(workflow: UiWorkflowService, taskId: string,
 
 export async function composeReport(root: string, resultsRef: FileRef, analysisRef: FileRef, reportId: string, linkDirectory?: string) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,95}$/.test(reportId)) throw new WorkflowError('invalid-input', '报告 ID 无效');
-  const store = new ArtifactStore(root), input = await analysisInputs(root, resultsRef);
+  return composeReportWithInput(root, await analysisInputs(root, resultsRef), resultsRef, analysisRef, reportId, linkDirectory);
+}
+
+async function composeReportWithInput(root: string, input: Awaited<ReturnType<typeof analysisInputs>>, resultsRef: FileRef, analysisRef: FileRef, reportId: string, linkDirectory?: string) {
+  const store = new ArtifactStore(root);
   const analysis = await store.load(analysisRef) as Artifact<'analysis'>;
   if (analysis.kind !== 'analysis' || !same(analysis.data.results_ref, resultsRef) || !same(analysis.data.run_ref, input.data.run_ref)) {
     throw new WorkflowError('precondition', '报告必须绑定同批次的统计与分析');
   }
-  await checkAnalysis(root, analysis);
+  await verifyReferences(root, analysis.data.findings.flatMap(finding => finding.supporting_refs));
+  checkAnalysisInput(input, analysis);
   const base = `${posix.dirname(input.data.run_ref.path)}/report/${reportId}`;
   const limitations = [...input.details.limitations, ...input.details.issues.map(i => `${i.rule}: ${i.reason}`),
     ...analysis.data.findings.filter(f => f.certainty === 'unknown').map(f => `${f.instance_id}：原因仍未知，未假定已修复或已提交缺陷`)];
@@ -181,7 +198,11 @@ export async function composeReport(root: string, resultsRef: FileRef, analysisR
 }
 
 export async function draftReport(root: string, resultsRef: FileRef, analysisRef: FileRef, reportId: string) {
-  const store = new ArtifactStore(root), { input, base, limitations, followUp, content } = await composeReport(root, resultsRef, analysisRef, reportId);
+  return draftReportWithInput(root, await analysisInputs(root, resultsRef), resultsRef, analysisRef, reportId);
+}
+
+async function draftReportWithInput(root: string, input: Awaited<ReturnType<typeof analysisInputs>>, resultsRef: FileRef, analysisRef: FileRef, reportId: string) {
+  const store = new ArtifactStore(root), { base, limitations, followUp, content } = await composeReportWithInput(root, input, resultsRef, analysisRef, reportId);
   const contentRef = await store.putFile(`${base}/content.md`, content);
   const followUpRef = await store.putFile(`${base}/follow-up.json`, JSON.stringify(followUp, null, 2) + '\n');
   const report: Artifact<'report'> = { schema_version: '1.0', kind: 'report', id: reportId, created_at: new Date().toISOString(),
