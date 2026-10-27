@@ -2,13 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { collectResults, reconcileRun, sha256, validateArtifact, verifyResults } from '../../packages/ui-testing/dist/index.js';
+import { assetDigest, collectResults, reconcileRun, sha256, validateArtifact, verifyResults } from '../../packages/ui-testing/dist/index.js';
 import { setup } from '../support/ui-design-fixture.mjs';
 import { ready } from '../support/ui-run-fixture.mjs';
 import { artifact } from '../support/ui-artifacts.mjs';
 
-async function sample(t,{statuses=['passed'],missingStep=false,extra=false,expected='passed',preflight='completed',attachments=[],omit=false,receiptOwner,exitCode}={}){
+async function sample(t,{statuses=['passed'],missingStep=false,extra=false,expected='passed',preflight='completed',attachments=[],omit=false,receiptOwner,exitCode,frozenGaps=false}={}){
   const f=await setup(t),base='qa/ui/runs/sample-run';
+  if(frozenGaps){
+    const asset=await f.store.load(f.assetRef),cases=await f.store.load(asset.data.cases_ref);
+    cases.id='historical-cases';cases.data.gaps=['Formal execution pending'];asset.data.cases_ref=await f.store.put(cases);
+    asset.id='historical-asset';asset.data.gaps=['Independent design review pending'];asset.data.content_sha256=assetDigest(asset);
+    f.assetRef=await f.store.put(asset);
+  }
   const sameRunAttachment=receiptOwner ? await f.store.putFile(`${base}/output/screenshot.png`,'protocol fixture for attachment ownership only') : undefined;
   if(sameRunAttachment)attachments=[...attachments,{name:'screenshot',path:join(f.root,sameRunAttachment.path)}];
   const original=await f.store.load(f.taskRef);
@@ -38,6 +44,17 @@ async function sample(t,{statuses=['passed'],missingStep=false,extra=false,expec
   const runRef=await f.store.finishRun(reservation.ref,exitCode===undefined?(statuses.includes('failed')?1:0):exitCode,outputs,exitCode===null);
   return {f,runRef,raw,base};
 }
+
+test('UI-08: frozen pending declarations are historical, while actual execution counts remain current',async t=>{
+  const {f,runRef}=await sample(t,{frozenGaps:true});const result=await reconcileRun(f.root,runRef);
+  assert.equal(result.data.counts.passed,1);
+  assert.equal(result.details.coverage.gap_basis,'frozen-input-declarations-not-current-status');
+  assert.deepEqual(result.details.coverage.case_gaps,['Formal execution pending']);
+  assert.deepEqual(result.details.coverage.asset_gaps,['Independent design review pending']);
+  assert.ok(result.details.limitations.includes('冻结用例声明（历史记录，非当前状态）：Formal execution pending'));
+  assert.ok(result.details.limitations.includes('冻结资产声明（历史记录，非当前状态）：Independent design review pending'));
+  assert.ok(!result.details.limitations.includes('Independent design review pending'));
+});
 
 test('UI-08: attempts never increase denominator; retry success remains flaky and zero denominator is null',async t=>{
   const {f,runRef}=await sample(t,{statuses:['failed','passed']});

@@ -281,3 +281,7 @@ audit-evidence(retention_days,audit_id) 写持久化审计，标记历史证据�
 `ui_design_diagnose/reuse {asset_ref,review_ref,spec_ref}` 只核对现行权威诊断及全部已登记引用；输入、规则、部署/角色/数据声明变化或未决诊断拒绝复用。每批真实环境/数据预检仍执行，未知现场变更不能由查询推断相同。
 
 `ui_result_analysis/analyze-task {task_id,findings?}` 对已结束的选定 run 做原生对账，按观察签名分组并保留每个实例全部 attempts/证据/清理/缺口。全 passed 可自动生成空 findings 的简洁摘要及正常报告候选；非 passed 必须逐实例提交有效 findings。只推进到结果评审，不自动批准或重跑。重复返回原候选，不静默改结论；子批次只分析其自身结果，不覆盖父批次。验证见 `tests/ui-testing/optimization-handoff.test.mjs`，受控协议不替代真实模型质量验收。
+
+### 冻结声明与报告当前状态
+
+结果对账的 `coverage.gap_basis=frozen-input-declarations-not-current-status` 标识 `case_gaps/asset_gaps` 来自执行前冻结输入；原文保留，报告限制明确标注为历史声明，不将“待评审/待执行”当作当前状态。当前设计结论和执行统计仍取自实际批准与原生批次。历史候选和已保存报告不覆盖；升级后重新解析为新的 results/analysis/report ID，再独立评审。

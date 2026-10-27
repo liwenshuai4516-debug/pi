@@ -226,7 +226,8 @@ export async function reconcileRun(root: string, runRef: FileRef) {
       features_with_execution_conclusion: concludedFeatures.size,
       selected_features: inventory ? new Set(inventory.data.features.map(featureKey)).size : null,
       features_without_cases: inventory ? inventory.data.features.filter(f => !coveredFeatures.has(featureKey(f))).map(featureKey) : null,
-      unexplored: inventory?.data.unexplored ?? null, case_gaps: cases.data.gaps, asset_gaps: asset.data.gaps },
+      unexplored: inventory?.data.unexplored ?? null, gap_basis: 'frozen-input-declarations-not-current-status',
+      case_gaps: cases.data.gaps, asset_gaps: asset.data.gaps },
     design: { basis: 'executed-asset-revision-only', candidate_count: cases.data.cases.length,
       approved_count: designReview ? designReview.data.decision === 'approved' ? cases.data.cases.length : 0 : null,
       revise_count: designReview ? designReview.data.decision === 'revise' ? cases.data.cases.length : 0 : null,
@@ -236,7 +237,9 @@ export async function reconcileRun(root: string, runRef: FileRef) {
       ...(run.data.parent_run_id ? [`本批次是父批次 ${run.data.parent_run_id} 的续跑/重跑；只报告本次选择集合，不能用子集通过替换原失败或宣称原全量通过；不同部署版本不合并。`] : []),
       '候选与设计评估数量仅统计本批次资产修订；不推断其他候选或历史轮次。未登记的信息为不可用，不填零',
       ...(inventory ? inventory.data.unexplored.map(gap => `未探索：${gap}`) : ['未绑定可核验功能清单，已选功能点分母不可用']),
-      ...cases.data.gaps, ...asset.data.gaps],
+      // 冻结时的待评审/待执行声明不能冒充报告生成时的状态；保留原文及来源。
+      ...cases.data.gaps.map(gap => `冻结用例声明（历史记录，非当前状态）：${gap}`),
+      ...asset.data.gaps.map(gap => `冻结资产声明（历史记录，非当前状态）：${gap}`)],
   } };
 }
 
